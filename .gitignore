@@ -1,0 +1,30 @@
+# PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Claude Code per-project config + hook sidecar files
+.claude/
+*.hook.err
+*.lock.d/
+
+# 3D case files (not ready for release yet)
+esp32_learning_arcade_case_v1_stls/
+esp32_learning_arcade_case_v1_stls.zip
+
+# Internal planning docs
+esp32-learning-arcade-plan.md
+esp32-learning-arcade-full-plan_v2.md
+esp32-learning-arcade-publish-strategy.md
+
+# Session changelog (private)
+changelog-claude.md

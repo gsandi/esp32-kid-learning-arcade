@@ -1,0 +1,7 @@
+[
+  {"shown": "f", "options": ["F", "E", "T"], "correct": 0},
+  {"shown": "h", "options": ["K", "H", "N"], "correct": 1},
+  {"shown": "j", "options": ["I", "L", "J"], "correct": 2},
+  {"shown": "k", "options": ["K", "H", "R"], "correct": 0},
+  {"shown": "v", "options": ["W", "U", "V"], "correct": 2}
+]

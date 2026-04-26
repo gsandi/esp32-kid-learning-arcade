@@ -1,0 +1,6 @@
+[
+  {"word": "B_G", "options": ["U", "A", "E"], "correct": 0},
+  {"word": "J_T", "options": ["E", "A", "U"], "correct": 1},
+  {"word": "R_G", "options": ["O", "E", "A"], "correct": 0},
+  {"word": "T_P", "options": ["I", "A", "O"], "correct": 2}
+]

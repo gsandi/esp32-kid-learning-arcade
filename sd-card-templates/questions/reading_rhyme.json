@@ -1,0 +1,6 @@
+[
+  {"target": "dog",  "options": ["log",  "cat",  "pen"], "correct": 0},
+  {"target": "pan",  "options": ["cup",  "man",  "sun"], "correct": 1},
+  {"target": "well", "options": ["ball", "duck", "bell"],"correct": 2},
+  {"target": "blue", "options": ["red",  "glue", "cat"], "correct": 1}
+]
