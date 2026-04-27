@@ -6,6 +6,8 @@
 #include <SD.h>
 #include <ArduinoJson.h>
 
+#include "fonts/NotoSansBold36.h"
+
 TFT_eSPI tft = TFT_eSPI();
 Preferences prefs;
 
@@ -357,6 +359,12 @@ const Button BTN_PIN_CLEAR  = { scaleW( 45), scaleH(360), scaleW(70), scaleH(55)
 const Button BTN_PIN_OK     = { scaleW(205), scaleH(360), scaleW(70), scaleH(55), "OK", TFT_GREEN    };
 const Button BTN_PIN_CANCEL = { scaleW(245), scaleH(  8), scaleW(65), scaleH(30), "X",  TFT_DARKGREY };
 
+// Exit-game tap zone in the question-screen header (top-left). Drawn as a small
+// X icon by drawHeader, not as a full button — so flashButton on tap is
+// visually subtle, which is intentional: parents can use it freely, kids
+// won't accidentally bail mid-round.
+const Button BTN_EXIT_GAME = { scaleW(2), scaleH(2), scaleW(40), scaleH(28), "", TFT_BLACK };
+
 // ---------- Touch helpers ----------
 
 int16_t mapTouchX(uint16_t rx) {
@@ -368,6 +376,14 @@ int16_t mapTouchY(uint16_t ry) {
 bool tapInside(const Button& b, int16_t x, int16_t y) {
   return x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
 }
+
+// ---------- Font helpers ----------
+
+// Anti-aliased ~36px bold for big alpha text — replaces the chunky
+// setTextSize(2/3/4) doubling. After useBigFont(), draws use the smooth
+// font; useDefaultFont() reverts to the crisp built-in bitmap fonts (Font 2/4/6).
+static inline void useBigFont()     { tft.loadFont(NotoSansBold36); }
+static inline void useDefaultFont() { tft.unloadFont(); }
 
 // ---------- Drawing primitives ----------
 
@@ -420,10 +436,9 @@ void drawCharButton(const Button& b, char ch) {
   tft.drawRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), TFT_WHITE);
   tft.setTextColor(TFT_WHITE, b.fill);
   tft.setTextDatum(MC_DATUM);
-  tft.setTextFont(4);
-  tft.setTextSize(2);
+  useBigFont();
   tft.drawString(buf, b.x + b.w / 2, b.y + b.h / 2);
-  tft.setTextSize(1);
+  useDefaultFont();
 }
 
 void drawShape(Shape s, int cx, int cy, int r, uint16_t bg) {
@@ -509,13 +524,26 @@ void drawConfettiBackground(uint16_t baseColor, bool avoidHomeButtons) {
 
 void drawHeader(const char* title) {
   tft.fillRect(0, 0, SCREEN_W, scaleH(32), TFT_BLACK);
+
+  // Exit "X" icon (top-left) — the tap zone is BTN_EXIT_GAME.
+  {
+    const int16_t cx = BTN_EXIT_GAME.x + BTN_EXIT_GAME.w / 2;
+    const int16_t cy = BTN_EXIT_GAME.y + BTN_EXIT_GAME.h / 2;
+    const int16_t s  = scaleMin(7);
+    // Draw 3 stacked diagonals for thickness, since drawLine is 1px wide.
+    for (int8_t d = -1; d <= 1; d++) {
+      tft.drawLine(cx - s, cy - s + d, cx + s, cy + s + d, TFT_LIGHTGREY);
+      tft.drawLine(cx + s, cy - s + d, cx - s, cy + s + d, TFT_LIGHTGREY);
+    }
+  }
+
+  // Title — shifted right of the X icon.
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(ML_DATUM);
   tft.setTextFont(2);
-  tft.drawString(title, scaleW(10), scaleH(16));
+  tft.drawString(title, scaleW(50), scaleH(16));
 
   // Progress dots: gold = answered correctly, white = current, dark outline = upcoming.
-  // Replaces the old "Stars: N" counter (which was always 0..5 anyway).
   const int dotR       = scaleMin(5);
   const int dotSpacing = scaleW(15);
   const int rightPad   = scaleW(10);
@@ -622,11 +650,11 @@ void drawAddQ(int idx, uint16_t bg) {
   tft.drawString("Add it up", SCREEN_W / 2, scaleH(50));
 
   tft.setTextColor(TFT_YELLOW, bg);
-  tft.setTextSize(2);
   char eq[20];
   snprintf(eq, sizeof(eq), "%d + %d = ?", q.left, q.right);
+  useBigFont();
   tft.drawString(eq, SCREEN_W / 2, scaleH(170));
-  tft.setTextSize(1);
+  useDefaultFont();
 
   for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
 }
@@ -639,11 +667,11 @@ void drawMake10Q(int idx, uint16_t bg) {
   tft.drawString("Make 10", SCREEN_W / 2, scaleH(50));
 
   tft.setTextColor(TFT_YELLOW, bg);
-  tft.setTextSize(2);
   char eq[20];
   snprintf(eq, sizeof(eq), "%d + ? = 10", q.left);
+  useBigFont();
   tft.drawString(eq, SCREEN_W / 2, scaleH(170));
-  tft.setTextSize(1);
+  useDefaultFont();
 
   for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
 }
@@ -656,10 +684,10 @@ void drawStartsWithQ(int idx, uint16_t bg) {
   tft.drawString("Which word starts with", SCREEN_W / 2, scaleH(55));
 
   tft.setTextColor(TFT_YELLOW, bg);
-  tft.setTextSize(4);
   char ltr[2] = { q.targetLetter, 0 };
-  tft.drawString(ltr, SCREEN_W / 2, scaleH(110));
-  tft.setTextSize(1);
+  useBigFont();
+  tft.drawString(ltr, SCREEN_W / 2, scaleH(125));
+  useDefaultFont();
 
   for (int i = 0; i < 3; i++) drawWordButton(BTN_OPT[i], q.options[i]);
 }
@@ -671,24 +699,23 @@ void drawMissingLetterQ(int idx, uint16_t bg) {
   tft.setTextDatum(TC_DATUM);
   tft.drawString("Find the missing letter", SCREEN_W / 2, scaleH(50));
 
-  const int charSpacing = scaleW(70);
+  const int charSpacing = scaleW(60);
   const int xCenter = SCREEN_W / 2;
   const int yMid = scaleH(180);
   tft.setTextDatum(MC_DATUM);
-  tft.setTextSize(3);
+  useBigFont();
   for (int i = 0; i < 3; i++) {
     char c = q.shown[i];
     int xi = xCenter + (i - 1) * charSpacing;
     if (c == '_') {
-      tft.fillRect(xi - scaleW(25), yMid + scaleH(32), scaleW(50), scaleH(8), TFT_YELLOW);
+      tft.fillRect(xi - scaleW(20), yMid + scaleH(20), scaleW(40), scaleH(6), TFT_YELLOW);
     } else {
       char buf[2] = { c, 0 };
       tft.setTextColor(TFT_WHITE, bg);
-      tft.setTextFont(4);
       tft.drawString(buf, xi, yMid);
     }
   }
-  tft.setTextSize(1);
+  useDefaultFont();
 
   for (int i = 0; i < 3; i++) drawCharButton(BTN_OPT[i], q.options[i]);
 }
@@ -701,9 +728,9 @@ void drawRhymeQ(int idx, uint16_t bg) {
   tft.drawString("Rhymes with", SCREEN_W / 2, scaleH(55));
 
   tft.setTextColor(TFT_YELLOW, bg);
-  tft.setTextSize(2);
+  useBigFont();
   tft.drawString(q.target, SCREEN_W / 2, scaleH(130));
-  tft.setTextSize(1);
+  useDefaultFont();
 
   for (int i = 0; i < 3; i++) drawWordButton(BTN_OPT[i], q.options[i]);
 }
@@ -716,10 +743,10 @@ void drawUpperLowerQ(int idx, uint16_t bg) {
   tft.drawString("Match this letter", SCREEN_W / 2, scaleH(55));
 
   tft.setTextColor(TFT_YELLOW, bg);
-  tft.setTextSize(4);
   char buf[2] = { q.shown, 0 };
-  tft.drawString(buf, SCREEN_W / 2, scaleH(110));
-  tft.setTextSize(1);
+  useBigFont();
+  tft.drawString(buf, SCREEN_W / 2, scaleH(125));
+  useDefaultFont();
 
   for (int i = 0; i < 3; i++) drawCharButton(BTN_OPT[i], q.options[i]);
 }
@@ -749,13 +776,13 @@ void drawCurrentQuestion() {
 void drawHome() {
   const uint16_t bg = TFT_PURPLE;
   drawConfettiBackground(bg, true);
-  tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextDatum(TC_DATUM);
-  tft.setTextFont(4);
-  tft.setTextSize(2);
-  tft.drawString("Dhruv", SCREEN_W / 2, scaleH(30));
-  tft.setTextSize(1);
+  tft.setTextColor(TFT_YELLOW, bg);
+  useBigFont();
+  tft.drawString("Dhruv", SCREEN_W / 2, scaleH(40));
+  useDefaultFont();
   tft.setTextColor(TFT_WHITE, bg);
+  tft.setTextFont(4);
   tft.drawString("Learning Arcade", SCREEN_W / 2, scaleH(110));
 
   drawButton(BTN_MATH);
@@ -774,17 +801,19 @@ void drawFeedback() {
   tft.fillScreen(bg);
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextDatum(TC_DATUM);
-  tft.setTextFont(4);
-  tft.setTextSize(2);
   if (lastAnswerCorrect) {
+    useBigFont();
     tft.drawString("Correct!", SCREEN_W / 2, scaleH(50));
-    tft.setTextSize(1);
+    useDefaultFont();
     drawShape(Shape::STAR, SCREEN_W / 2, scaleH(220), scaleMin(60), bg);
+    tft.setTextFont(4);
     tft.drawString("You got a star!", SCREEN_W / 2, scaleH(300));
     drawButton(BTN_NEXT);
   } else {
+    useBigFont();
     tft.drawString("Try Again", SCREEN_W / 2, scaleH(50));
-    tft.setTextSize(1);
+    useDefaultFont();
+    tft.setTextFont(4);
     tft.drawString("You can do it!", SCREEN_W / 2, scaleH(220));
     drawButton(BTN_TRY);
   }
@@ -795,10 +824,10 @@ void drawRoundComplete() {
   drawConfettiBackground(bg, false);
   tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextDatum(TC_DATUM);
+  useBigFont();
+  tft.drawString("Great Job!", SCREEN_W / 2, scaleH(30));
+  useDefaultFont();
   tft.setTextFont(4);
-  tft.setTextSize(2);
-  tft.drawString("Great Job!", SCREEN_W / 2, scaleH(25));
-  tft.setTextSize(1);
 
   // Stars reveal one by one — celebration beat. drawRoundComplete is only
   // called once per round entry (no re-redraws happen on this screen until
@@ -866,10 +895,10 @@ void drawAdmin() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(TC_DATUM);
+  useBigFont();
+  tft.drawString("Admin", SCREEN_W / 2, scaleH(20));
+  useDefaultFont();
   tft.setTextFont(4);
-  tft.setTextSize(2);
-  tft.drawString("Admin", SCREEN_W / 2, scaleH(15));
-  tft.setTextSize(1);
   tft.setTextColor(TFT_GOLD, TFT_BLACK);
   char buf[40];
   snprintf(buf, sizeof(buf), "Stars: %d", totalStars);
@@ -1056,8 +1085,9 @@ void recordAnswer(bool correct) {
   if (correct) {
     correctThisRound++;
     starsThisRound++;
-    totalStars++;
-    saveStars();
+    // totalStars is NOT updated here. Stars are credited only when the kid
+    // finishes all 5 questions — see advanceAfterFeedback. Mid-round exits
+    // forfeit the round's stars.
   }
   currentScreen = Screen::FEEDBACK;
   needsRedraw   = true;
@@ -1071,6 +1101,10 @@ void advanceAfterFeedback() {
   if (lastAnswerCorrect) {
     currentQuestionIndex++;
     if (currentQuestionIndex >= QUESTIONS_PER_ROUND) {
+      // Round finished — credit the round's stars to the lifetime total
+      // and persist. This is the only place that touches totalStars/saveStars.
+      totalStars += starsThisRound;
+      saveStars();
       currentScreen = Screen::ROUND_COMPLETE;
     } else {
       currentScreen = Screen::QUESTION;
@@ -1088,6 +1122,17 @@ void handleTap(int16_t sx, int16_t sy) {
       else if (tapInside(BTN_READING, sx, sy)) { flashButton(BTN_READING); startReadingRound(); }
       break;
     case Screen::QUESTION:
+      if (tapInside(BTN_EXIT_GAME, sx, sy)) {
+        // Bail out — forfeit this round's stars (they were never credited
+        // to totalStars; starsThisRound just gets reset for the next round).
+        starsThisRound       = 0;
+        correctThisRound     = 0;
+        currentQuestionIndex = 0;
+        currentGameMode      = GameMode::NONE;
+        currentScreen        = Screen::HOME;
+        needsRedraw          = true;
+        return;
+      }
       for (int i = 0; i < 3; i++) {
         if (tapInside(BTN_OPT[i], sx, sy)) { flashButton(BTN_OPT[i]); handleAnswer(i); return; }
       }
