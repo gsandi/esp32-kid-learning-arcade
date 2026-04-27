@@ -203,10 +203,44 @@ All settings survive power cycles.
 
 ## Customizing further
 
-- **Use a different display panel:** the layout scales proportionally — change `SCREEN_W` and `SCREEN_H` near the top of `main.cpp` (and the matching `TFT_WIDTH` / `TFT_HEIGHT` in `platformio.ini` build flags) and the whole UI rescales. All hardcoded coordinates pass through `scaleW()` / `scaleH()` / `scaleMin()` helpers, so a 320×480 build is byte-identical to before, while a 240×320 or 480×800 panel adapts automatically. Caveat: TFT_eSPI built-in fonts (Font 2/4/6) are bitmap fonts at fixed pixel sizes — for very different aspect ratios you may also want to revisit the `setTextFont(N)` calls.
 - **Add a new question type:** add an entry to the `QType` enum, a new `*Bank` array, a case in `bankSizeFor()`, a draw function, and an answer-check case. Roughly 30 lines per type.
 - **Change the colors / theme:** all UI rendering is in `main.cpp`. Search for `TFT_PURPLE`, `TFT_YELLOW`, etc. to retheme.
 - **Wi-Fi or audio:** explicitly out of scope for v1 — the goal is offline + silent so the toy doesn't compete with bells and whistles for the kid's attention. PRs welcome if you disagree.
+
+---
+
+## Using a different display panel
+
+The layout scales proportionally with the panel. Change two pairs of values and the whole UI follows:
+
+```cpp
+// src/main.cpp, near the top
+constexpr int16_t SCREEN_W = 320;   // ← your panel's width
+constexpr int16_t SCREEN_H = 480;   // ← your panel's height
+```
+
+```ini
+; platformio.ini build_flags
+-DTFT_WIDTH=320
+-DTFT_HEIGHT=480
+```
+
+All hardcoded coordinates pass through `scaleW()` / `scaleH()` / `scaleMin()` constexpr helpers, so the 320×480 build is byte-identical to the reference and other sizes proportionally rescale at compile time (zero runtime overhead).
+
+### Font caveat
+
+TFT_eSPI built-in fonts (Font 2 / Font 4 / Font 6 / Font 8) are bitmap fonts at **fixed pixel sizes** — they don't scale automatically with the geometry. On panels far from 320×480 you'll want to revisit the `setTextFont(N)` and `setTextSize(N)` calls. As a starting point:
+
+| Panel | Aspect | Body text<br>(Font 2) | Titles + button labels<br>(currently Font 4) | Big inline numbers<br>(currently Font 6) | Big single letter<br>(currently Font 4 + size 4) | Notes |
+|---|---|---|---|---|---|---|
+| **240×320** | 3:4 | Font 2 | Font 2 (drop sizes) | Font 4 + size 2 | Font 6 plain | Tight; consider shorter button labels |
+| **320×480** ✅ | 2:3 | Font 2 | Font 4 | Font 6 | Font 4 + size 4 | Reference. No changes. |
+| **480×800** | 3:5 | Font 4 | Font 4 + size 2 | Font 8 (digits only) | Font 4 + size 5–6 | Lots of room — bump everything up a notch |
+| **320×240 / 480×320 (landscape)** | 4:3 / 3:2 | — | — | — | — | Real layout rework, not just fonts: vertically-stacked buttons need to become side-by-side, header/footer move, the ten-frame grid wants to be wider-not-taller. Better treated as a port than a tweak. |
+
+Heights for reference: Font 2 ≈ 16px, Font 4 ≈ 26px, Font 6 ≈ 48px (digits only), Font 8 ≈ 75px (digits only). `setTextSize(N)` multiplies the bitmap by integer `N` (looks chunky for `N` > 2).
+
+If you ship a working build for a different panel, please open a PR — the panel matrix is more useful filled in by people who actually built one.
 
 ---
 
