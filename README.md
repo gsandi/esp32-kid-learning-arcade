@@ -219,3 +219,4 @@ If you want to dig into pinouts or extend the firmware, the board's spec page is
 
 - Display driver: [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) by Bodmer
 - Hardware: 4.0" ESP32-32E from [LCDWiki](http://www.lcdwiki.com/4.0inch_ESP32-32E_Display) / Hosyond
+- Built with development assistance from [Claude Code](https://claude.com/claude-code)
