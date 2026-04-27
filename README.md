@@ -26,7 +26,7 @@ A parent or hobbyist who wants to build a simple offline learning toy for their 
 
 | Item | Approx. price | Notes |
 |---|---|---|
-| 4.0" ESP32-32E touchscreen display | ~$25 | On Amazon, search **"Hosyond ESP32 4 inch display"** or **"LCDWiki ESP32-32E"**. The listing must say **320×480 ST7796S** with **USB-C and CH340C**. |
+| 4.0" ESP32-32E touchscreen display | ~$25 | **US:** [search Amazon for "Hosyond ESP32 4 inch display"](https://www.amazon.com/s?k=hosyond+esp32+4+inch+display) (same hardware is also sold as "LCDWiki ESP32-32E"). The listing must say **320×480 ST7796S** with **USB-C and CH340C**. Manufacturer spec: [lcdwiki.com](http://www.lcdwiki.com/4.0inch_ESP32-32E_Display). |
 | USB-C **data** cable | $0–$10 | Many USB-C cables are charge-only and won't enumerate as a serial device. If your laptop doesn't see the board after plugging in, swap cables before debugging anything else. Some boards include one. |
 | A computer (Mac, Windows, or Linux) | — | Only needed once for flashing. After that the device runs standalone on USB power (any phone charger works). |
 
@@ -68,9 +68,50 @@ Plug the ESP32 into your Mac with the USB-C cable, then run:
 pio run -t upload
 ```
 
-That's it. PlatformIO auto-detects the board, builds the firmware, and flashes it. The device boots into the home screen the moment the upload finishes (~30 seconds).
+PlatformIO auto-detects the board, builds the firmware, and flashes it. The device boots into the home screen the moment the upload finishes (~30 seconds).
 
-Unplug it from your Mac and plug it into any phone charger — it now runs standalone.
+### Step 5 — Calibrate the touch screen (required, ~3 minutes)
+
+**Don't skip this step.** Every XPT2046 resistive touch panel reads slightly differently — until you calibrate, your taps will land in the wrong place. The four `RAW_X_LEFT / RAW_X_RIGHT / RAW_Y_TOP / RAW_Y_BOTTOM` constants in `src/main.cpp` are tuned to the panel I built on, not yours.
+
+1. With the device still plugged into your Mac, open the serial monitor:
+
+   ```bash
+   pio device monitor
+   ```
+
+2. Tap each corner of the screen. Every tap prints a line like:
+
+   ```
+   TAP raw=(218,3712) mapped=(...) screen=0 admin=0
+   ```
+
+   Write down the `raw=(x,y)` numbers for all four corners — top-left, top-right, bottom-left, bottom-right.
+
+3. Quit the monitor with **Ctrl + C**. Then open `src/main.cpp` in any text editor (TextEdit works — drag the file onto TextEdit's icon, then choose **Format → Make Plain Text** if it complains).
+
+4. Find these four lines near the top of the file and update the numbers with what you wrote down:
+
+   ```cpp
+   constexpr uint16_t RAW_X_LEFT   =  223;   // raw X from a leftmost-edge tap
+   constexpr uint16_t RAW_X_RIGHT  = 3761;   // raw X from a rightmost-edge tap
+   constexpr uint16_t RAW_Y_TOP    =  ...;   // raw Y from a top-edge tap
+   constexpr uint16_t RAW_Y_BOTTOM =  ...;   // raw Y from a bottom-edge tap
+   ```
+
+5. Save the file, then re-flash:
+
+   ```bash
+   pio run -t upload
+   ```
+
+6. Tap the home-screen buttons — taps should now land where your finger actually is.
+
+**If your taps register on the wrong side** (tapping left registers as right, or top registers as bottom), the axis is mirrored. Just **swap the two values** within the affected pair (`RAW_X_LEFT` ↔ `RAW_X_RIGHT`, or `RAW_Y_TOP` ↔ `RAW_Y_BOTTOM`) and re-flash. No other code change needed.
+
+### Done
+
+Unplug the device from your Mac and plug it into any phone charger — it now runs standalone.
 
 ---
 
@@ -154,24 +195,9 @@ All settings survive power cycles.
 | **`zsh: command not found: pio`** after the setup script | Quit Terminal and open a fresh window. PATH changes only apply to new shells. |
 | **PlatformIO can't find the board** | (1) USB-C cable is charge-only — try a different cable. (2) CH340 driver missing — install [WCH CH340](https://www.wch-ic.com/downloads/CH34XSER_MAC_ZIP.html) and reboot. (3) Multiple USB serial devices plugged in — set `upload_port` explicitly in `platformio.ini`. |
 | **Display is white / blank** | Confirm `-DST7796_DRIVER=1` is in `platformio.ini`, not `ILI9486` or `ILI9488`. Some sellers ship the same physical board with different controllers. |
-| **Touch is mirrored or upside-down** | Swap the values inside the `RAW_X_*` or `RAW_Y_*` pair in `main.cpp` (see Touch calibration below). |
+| **Touch is mirrored or upside-down** | Swap the values inside the `RAW_X_*` or `RAW_Y_*` pair in `main.cpp` (see Step 5 — Calibrate the touch screen). |
 | **Letters render blank but numbers work** | You're using TFT_eSPI Font 6 — it's digits + punctuation only. Use Font 4 with `setTextSize(2)` for big readable text. |
 | **Upload fails with "Connecting…" hang** | Hold the BOOT button on the back of the board, hit `pio run -t upload`, release BOOT once "Connecting…" prints. (Most CH340C boards auto-reset and don't need this — but if yours has a flaky USB-C jack, the manual dance helps.) |
-
----
-
-## Touch calibration (only if your taps land in the wrong place)
-
-The four `RAW_X_LEFT / RAW_X_RIGHT / RAW_Y_TOP / RAW_Y_BOTTOM` constants near the top of `main.cpp` are tuned to the panel I built on. XPT2046 resistive touch panels vary slightly between units, so your touch may be off by a handful of pixels. With the 60–80px game buttons it's usually fine without recalibration.
-
-If your buttons feel off (or your taps land in the wrong corner entirely):
-
-1. In `loop()`, temporarily add a serial print of the **raw** touch coordinates (`tft.getTouchRaw(&rx, &ry)` — don't apply the `map()` transform).
-2. Open `pio device monitor`, then tap each of the four corners of the screen and write down the raw values.
-3. Update the four `RAW_*` constants with your readings (X axis: leftmost-tap → `RAW_X_LEFT`, rightmost-tap → `RAW_X_RIGHT`. Y axis: same).
-4. Re-flash with `pio run -t upload`.
-
-If the touch axes are mirrored (tapping left registers right), swap the values inside the `RAW_X_LEFT` / `RAW_X_RIGHT` pair (or the `RAW_Y_*` pair). That's it — no code change needed, just swap the numbers.
 
 ---
 

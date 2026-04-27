@@ -1416,7 +1416,7 @@ void loop() {
     touchStartMs   = millis();
     adminHoldArmed = (currentScreen == Screen::HOME &&
                       sx >= ADMIN_ZONE_X && sy >= ADMIN_ZONE_Y);
-    Serial.printf("TAP (%d,%d) screen=%d admin=%d\n", sx, sy, (int)currentScreen, adminHoldArmed);
+    Serial.printf("TAP raw=(%u,%u) mapped=(%d,%d) screen=%d admin=%d\n", rx, ry, sx, sy, (int)currentScreen, adminHoldArmed);
     handleTap(sx, sy);
   } else if (isTouched && wasTouched) {
     if (adminHoldArmed && (millis() - touchStartMs > ADMIN_HOLD_MS)) {
