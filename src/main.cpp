@@ -371,25 +371,44 @@ bool tapInside(const Button& b, int16_t x, int16_t y) {
 
 // ---------- Drawing primitives ----------
 
+// Halve brightness of an RGB565 color — used for press feedback + button shadows.
+static inline uint16_t darken565(uint16_t c) {
+  uint16_t r = (c >> 11) & 0x1F;
+  uint16_t g = (c >>  5) & 0x3F;
+  uint16_t b =  c        & 0x1F;
+  return ((r >> 1) << 11) | ((g >> 1) << 5) | (b >> 1);
+}
+
+// Brief tactile flash so taps feel responsive. Call right before any
+// screen transition; the next redraw paints over the darkened state.
+void flashButton(const Button& b) {
+  const int16_t r = scaleMin(12);
+  uint16_t pressed = darken565(b.fill);
+  tft.fillRoundRect(b.x, b.y, b.w, b.h, r, pressed);
+  tft.drawRoundRect(b.x, b.y, b.w, b.h, r, TFT_WHITE);
+  delay(70);
+}
+
 void drawButton(const Button& b) {
-  tft.fillRoundRect(b.x, b.y, b.w, b.h, 12, b.fill);
-  tft.drawRoundRect(b.x, b.y, b.w, b.h, 12, TFT_WHITE);
+  const int16_t r = scaleMin(12);
+  tft.fillRoundRect(b.x, b.y, b.w, b.h, r, b.fill);
+  tft.drawRoundRect(b.x, b.y, b.w, b.h, r, TFT_WHITE);
   tft.setTextColor(TFT_WHITE, b.fill);
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(4);
   tft.drawString(b.label, b.x + b.w / 2, b.y + b.h / 2);
 }
 void drawNumberButton(const Button& b, int n) {
-  tft.fillRoundRect(b.x, b.y, b.w, b.h, 12, b.fill);
-  tft.drawRoundRect(b.x, b.y, b.w, b.h, 12, TFT_WHITE);
+  tft.fillRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), b.fill);
+  tft.drawRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), TFT_WHITE);
   tft.setTextColor(TFT_WHITE, b.fill);
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(6);
   tft.drawNumber(n, b.x + b.w / 2, b.y + b.h / 2);
 }
 void drawWordButton(const Button& b, const char* word) {
-  tft.fillRoundRect(b.x, b.y, b.w, b.h, 12, b.fill);
-  tft.drawRoundRect(b.x, b.y, b.w, b.h, 12, TFT_WHITE);
+  tft.fillRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), b.fill);
+  tft.drawRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), TFT_WHITE);
   tft.setTextColor(TFT_WHITE, b.fill);
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(4);
@@ -397,8 +416,8 @@ void drawWordButton(const Button& b, const char* word) {
 }
 void drawCharButton(const Button& b, char ch) {
   char buf[2] = { ch, 0 };
-  tft.fillRoundRect(b.x, b.y, b.w, b.h, 12, b.fill);
-  tft.drawRoundRect(b.x, b.y, b.w, b.h, 12, TFT_WHITE);
+  tft.fillRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), b.fill);
+  tft.drawRoundRect(b.x, b.y, b.w, b.h, scaleMin(12), TFT_WHITE);
   tft.setTextColor(TFT_WHITE, b.fill);
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(4);
@@ -418,10 +437,25 @@ void drawShape(Shape s, int cx, int cy, int r, uint16_t bg) {
       tft.fillCircle(cx, cy, r, TFT_BLUE);
       tft.fillCircle(cx - r/3, cy - r/3, r/4, TFT_WHITE);
       break;
-    case Shape::STAR:
-      tft.fillTriangle(cx, cy - r, cx - r * 9/10, cy + r/2, cx + r * 9/10, cy + r/2, TFT_YELLOW);
-      tft.fillTriangle(cx, cy + r, cx - r * 9/10, cy - r/2, cx + r * 9/10, cy - r/2, TFT_YELLOW);
+    case Shape::STAR: {
+      // Real 5-point star, fan-triangulated from the center.
+      // Vertices x1000 — outer/inner alternating, point-up, clockwise.
+      static const int16_t STAR_PTS[20] = {
+           0, -1000,    224,  -309,    951,  -309,    363,   118,
+         588,   809,      0,   382,   -588,   809,   -363,   118,
+        -951,  -309,   -224,  -309,
+      };
+      int16_t px[10], py[10];
+      for (int i = 0; i < 10; i++) {
+        px[i] = cx + (int16_t)((int32_t)STAR_PTS[i*2]     * r / 1000);
+        py[i] = cy + (int16_t)((int32_t)STAR_PTS[i*2 + 1] * r / 1000);
+      }
+      for (int i = 0; i < 10; i++) {
+        int j = (i + 1) % 10;
+        tft.fillTriangle(cx, cy, px[i], py[i], px[j], py[j], TFT_YELLOW);
+      }
       break;
+    }
     case Shape::FLOWER:
       tft.fillCircle(cx,                  cy - r,             r/2, TFT_PINK);
       tft.fillCircle(cx + r * 95 / 100,   cy - r * 31 / 100,  r/2, TFT_PINK);
@@ -479,10 +513,20 @@ void drawHeader(const char* title) {
   tft.setTextDatum(ML_DATUM);
   tft.setTextFont(2);
   tft.drawString(title, scaleW(10), scaleH(16));
-  tft.setTextDatum(MR_DATUM);
-  char buf[16];
-  snprintf(buf, sizeof(buf), "Stars: %d", starsThisRound);
-  tft.drawString(buf, SCREEN_W - scaleW(10), scaleH(16));
+
+  // Progress dots: gold = answered correctly, white = current, dark outline = upcoming.
+  // Replaces the old "Stars: N" counter (which was always 0..5 anyway).
+  const int dotR       = scaleMin(5);
+  const int dotSpacing = scaleW(15);
+  const int rightPad   = scaleW(10);
+  const int dotsRight  = SCREEN_W - rightPad;
+  const int dotsY      = scaleH(16);
+  for (int i = 0; i < QUESTIONS_PER_ROUND; i++) {
+    int dx = dotsRight - (QUESTIONS_PER_ROUND - 1 - i) * dotSpacing;
+    if (i < currentQuestionIndex)        tft.fillCircle(dx, dotsY, dotR, TFT_GOLD);
+    else if (i == currentQuestionIndex)  tft.fillCircle(dx, dotsY, dotR, TFT_WHITE);
+    else                                 tft.drawCircle(dx, dotsY, dotR, TFT_DARKGREY);
+  }
 }
 
 void drawQuestionFooter(uint16_t bg) {
@@ -755,14 +799,21 @@ void drawRoundComplete() {
   tft.setTextSize(2);
   tft.drawString("Great Job!", SCREEN_W / 2, scaleH(25));
   tft.setTextSize(1);
+
+  // Stars reveal one by one — celebration beat. drawRoundComplete is only
+  // called once per round entry (no re-redraws happen on this screen until
+  // a navigation tap), so the animation only plays on the fresh transition.
   if (starsThisRound > 0) {
     const int starSpacing = scaleW(50);
     const int starR       = scaleMin(20);
     int sw = starsThisRound * starSpacing;
     int sx = (SCREEN_W - sw) / 2 + starSpacing / 2;
-    for (int i = 0; i < starsThisRound; i++)
+    for (int i = 0; i < starsThisRound; i++) {
       drawShape(Shape::STAR, sx + i * starSpacing, scaleH(170), starR, bg);
+      delay(180);
+    }
   }
+
   tft.setTextColor(TFT_WHITE, bg);
   char buf[40];
   snprintf(buf, sizeof(buf), "%d out of %d", correctThisRound, QUESTIONS_PER_ROUND);
@@ -1033,32 +1084,35 @@ void advanceAfterFeedback() {
 void handleTap(int16_t sx, int16_t sy) {
   switch (currentScreen) {
     case Screen::HOME:
-      if (tapInside(BTN_MATH, sx, sy))           startMathRound();
-      else if (tapInside(BTN_READING, sx, sy))   startReadingRound();
+      if      (tapInside(BTN_MATH,    sx, sy)) { flashButton(BTN_MATH);    startMathRound();    }
+      else if (tapInside(BTN_READING, sx, sy)) { flashButton(BTN_READING); startReadingRound(); }
       break;
     case Screen::QUESTION:
       for (int i = 0; i < 3; i++) {
-        if (tapInside(BTN_OPT[i], sx, sy)) { handleAnswer(i); return; }
+        if (tapInside(BTN_OPT[i], sx, sy)) { flashButton(BTN_OPT[i]); handleAnswer(i); return; }
       }
       break;
     case Screen::FEEDBACK:
       if (lastAnswerCorrect) {
-        if (tapInside(BTN_NEXT, sx, sy)) advanceAfterFeedback();
+        if (tapInside(BTN_NEXT, sx, sy)) { flashButton(BTN_NEXT); advanceAfterFeedback(); }
       } else {
-        if (tapInside(BTN_TRY, sx, sy))  advanceAfterFeedback();
+        if (tapInside(BTN_TRY,  sx, sy)) { flashButton(BTN_TRY);  advanceAfterFeedback(); }
       }
       break;
     case Screen::ROUND_COMPLETE:
       if (tapInside(BTN_PLAY, sx, sy)) {
+        flashButton(BTN_PLAY);
         if (currentGameMode == GameMode::READING) startReadingRound();
         else                                      startMathRound();
       } else if (tapInside(BTN_GOHOME, sx, sy)) {
+        flashButton(BTN_GOHOME);
         currentScreen = Screen::HOME;
         needsRedraw   = true;
       }
       break;
     case Screen::PIN_ENTRY:
       if (tapInside(BTN_PIN_CANCEL, sx, sy)) {
+        flashButton(BTN_PIN_CANCEL);
         pinLen = 0; pinBuffer[0] = 0; pinWrong = false;
         currentScreen = Screen::HOME;
         needsRedraw   = true;
@@ -1093,23 +1147,28 @@ void handleTap(int16_t sx, int16_t sy) {
       break;
     case Screen::ADMIN:
       if (tapInside(BTN_RESET, sx, sy)) {
+        flashButton(BTN_RESET);
         totalStars = 0;
         saveStars();
         currentScreen = Screen::HOME;
         needsRedraw   = true;
       } else if (tapInside(BTN_LOCK_TOGGLE, sx, sy)) {
+        flashButton(BTN_LOCK_TOGGLE);
         lockEnabled = !lockEnabled;
         saveSettings();
         needsRedraw = true;
       } else if (tapInside(BTN_MATH_DIFF, sx, sy)) {
+        flashButton(BTN_MATH_DIFF);
         mathDifficulty = !mathDifficulty;
         saveSettings();
         needsRedraw = true;
       } else if (tapInside(BTN_READ_DIFF, sx, sy)) {
+        flashButton(BTN_READ_DIFF);
         readDifficulty = !readDifficulty;
         saveSettings();
         needsRedraw = true;
       } else if (tapInside(BTN_CANCEL, sx, sy)) {
+        flashButton(BTN_CANCEL);
         currentScreen = Screen::HOME;
         needsRedraw   = true;
       }
