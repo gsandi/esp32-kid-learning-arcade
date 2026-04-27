@@ -19,8 +19,27 @@ constexpr int16_t SCREEN_W = 320;
 constexpr int16_t SCREEN_H = 480;
 constexpr int     QUESTIONS_PER_ROUND = 5;
 
-constexpr int16_t       ADMIN_ZONE_X  = SCREEN_W - 80;
-constexpr int16_t       ADMIN_ZONE_Y  = SCREEN_H - 80;
+// ---------- Layout scaling ----------
+// All hardcoded layout numbers below are written for a 320x480 reference panel.
+// scaleW / scaleH / scaleMin compile to identity on 320x480 (so the original
+// visual layout is preserved byte-for-byte), and proportionally rescale for
+// other panel sizes — change SCREEN_W / SCREEN_H above and the whole UI follows.
+//
+// Caveats: TFT_eSPI built-in fonts (setTextFont 2/4/6) are bitmap fonts at
+// fixed pixel sizes and don't scale automatically. For panels very different
+// from 320x480 (e.g. 240x320 or 480x800) you may want to revisit font choices.
+constexpr int16_t REF_W = 320;
+constexpr int16_t REF_H = 480;
+constexpr int16_t scaleW(int16_t v) { return (int32_t)v * SCREEN_W / REF_W; }
+constexpr int16_t scaleH(int16_t v) { return (int32_t)v * SCREEN_H / REF_H; }
+constexpr int16_t scaleMin(int16_t v) {
+  return (SCREEN_W * REF_H < SCREEN_H * REF_W)
+    ? (int32_t)v * SCREEN_W / REF_W
+    : (int32_t)v * SCREEN_H / REF_H;
+}
+
+constexpr int16_t       ADMIN_ZONE_X  = SCREEN_W - scaleW(80);
+constexpr int16_t       ADMIN_ZONE_Y  = SCREEN_H - scaleH(80);
 constexpr unsigned long ADMIN_HOLD_MS          = 2000;
 constexpr unsigned long SCREENSAVER_TIMEOUT_MS = 60000;  // 60 s idle → screensaver
 constexpr unsigned long SCREENSAVER_FRAME_MS   = 100;    // 10 fps animation
@@ -303,40 +322,40 @@ struct Button {
   uint16_t fill;
 };
 
-const Button BTN_MATH    = { 40, 180, 240, 90, "Math Game",    TFT_SKYBLUE };
-const Button BTN_READING = { 40, 290, 240, 90, "Reading Game", TFT_ORANGE };
-const Button BTN_NEXT    = { 90,  370, 140, 70, "Next",        TFT_GREEN };
-const Button BTN_TRY     = { 60,  370, 200, 70, "Try Again",   TFT_ORANGE };
-const Button BTN_PLAY    = { 25,  390, 140, 70, "Play Again",  TFT_GREEN };
-const Button BTN_GOHOME  = { 175, 390, 120, 70, "Home",        TFT_SKYBLUE };
-const Button BTN_RESET       = {  30, 115, 260, 50, "Reset Stars", TFT_RED      };
-const Button BTN_LOCK_TOGGLE = {  30, 175, 260, 50, "",            TFT_NAVY     };
-const Button BTN_MATH_DIFF   = {  30, 235, 260, 50, "",            TFT_DARKCYAN };
-const Button BTN_READ_DIFF   = {  30, 295, 260, 50, "",            TFT_DARKGREEN};
-const Button BTN_CANCEL      = {  60, 365, 200, 50, "Cancel",      TFT_DARKGREY };
+const Button BTN_MATH    = { scaleW(40),  scaleH(180), scaleW(240), scaleH(90), "Math Game",    TFT_SKYBLUE };
+const Button BTN_READING = { scaleW(40),  scaleH(290), scaleW(240), scaleH(90), "Reading Game", TFT_ORANGE };
+const Button BTN_NEXT    = { scaleW(90),  scaleH(370), scaleW(140), scaleH(70), "Next",         TFT_GREEN };
+const Button BTN_TRY     = { scaleW(60),  scaleH(370), scaleW(200), scaleH(70), "Try Again",    TFT_ORANGE };
+const Button BTN_PLAY    = { scaleW(25),  scaleH(390), scaleW(140), scaleH(70), "Play Again",   TFT_GREEN };
+const Button BTN_GOHOME  = { scaleW(175), scaleH(390), scaleW(120), scaleH(70), "Home",         TFT_SKYBLUE };
+const Button BTN_RESET       = { scaleW(30), scaleH(115), scaleW(260), scaleH(50), "Reset Stars", TFT_RED      };
+const Button BTN_LOCK_TOGGLE = { scaleW(30), scaleH(175), scaleW(260), scaleH(50), "",            TFT_NAVY     };
+const Button BTN_MATH_DIFF   = { scaleW(30), scaleH(235), scaleW(260), scaleH(50), "",            TFT_DARKCYAN };
+const Button BTN_READ_DIFF   = { scaleW(30), scaleH(295), scaleW(260), scaleH(50), "",            TFT_DARKGREEN};
+const Button BTN_CANCEL      = { scaleW(60), scaleH(365), scaleW(200), scaleH(50), "Cancel",      TFT_DARKGREY };
 
 const Button BTN_OPT[3] = {
-  { 20,  330, 80, 90, "", TFT_PURPLE },
-  { 120, 330, 80, 90, "", TFT_PURPLE },
-  { 220, 330, 80, 90, "", TFT_PURPLE },
+  { scaleW(20),  scaleH(330), scaleW(80), scaleH(90), "", TFT_PURPLE },
+  { scaleW(120), scaleH(330), scaleW(80), scaleH(90), "", TFT_PURPLE },
+  { scaleW(220), scaleH(330), scaleW(80), scaleH(90), "", TFT_PURPLE },
 };
 
-// PIN entry pad. Columns centred: x=45,125,205  w=70  h=55
+// PIN entry pad. Columns centred on 320x480: x=45,125,205  w=70  h=55
 const Button BTN_PIN_DIGIT[10] = {
-  { 125, 360, 70, 55, "0", TFT_DARKGREY },
-  {  45, 155, 70, 55, "1", TFT_DARKGREY },
-  { 125, 155, 70, 55, "2", TFT_DARKGREY },
-  { 205, 155, 70, 55, "3", TFT_DARKGREY },
-  {  45, 220, 70, 55, "4", TFT_DARKGREY },
-  { 125, 220, 70, 55, "5", TFT_DARKGREY },
-  { 205, 220, 70, 55, "6", TFT_DARKGREY },
-  {  45, 285, 70, 55, "7", TFT_DARKGREY },
-  { 125, 285, 70, 55, "8", TFT_DARKGREY },
-  { 205, 285, 70, 55, "9", TFT_DARKGREY },
+  { scaleW(125), scaleH(360), scaleW(70), scaleH(55), "0", TFT_DARKGREY },
+  { scaleW( 45), scaleH(155), scaleW(70), scaleH(55), "1", TFT_DARKGREY },
+  { scaleW(125), scaleH(155), scaleW(70), scaleH(55), "2", TFT_DARKGREY },
+  { scaleW(205), scaleH(155), scaleW(70), scaleH(55), "3", TFT_DARKGREY },
+  { scaleW( 45), scaleH(220), scaleW(70), scaleH(55), "4", TFT_DARKGREY },
+  { scaleW(125), scaleH(220), scaleW(70), scaleH(55), "5", TFT_DARKGREY },
+  { scaleW(205), scaleH(220), scaleW(70), scaleH(55), "6", TFT_DARKGREY },
+  { scaleW( 45), scaleH(285), scaleW(70), scaleH(55), "7", TFT_DARKGREY },
+  { scaleW(125), scaleH(285), scaleW(70), scaleH(55), "8", TFT_DARKGREY },
+  { scaleW(205), scaleH(285), scaleW(70), scaleH(55), "9", TFT_DARKGREY },
 };
-const Button BTN_PIN_CLEAR  = {  45, 360, 70, 55, "C",  TFT_ORANGE   };
-const Button BTN_PIN_OK     = { 205, 360, 70, 55, "OK", TFT_GREEN    };
-const Button BTN_PIN_CANCEL = { 245,   8, 65, 30, "X",  TFT_DARKGREY };
+const Button BTN_PIN_CLEAR  = { scaleW( 45), scaleH(360), scaleW(70), scaleH(55), "C",  TFT_ORANGE   };
+const Button BTN_PIN_OK     = { scaleW(205), scaleH(360), scaleW(70), scaleH(55), "OK", TFT_GREEN    };
+const Button BTN_PIN_CANCEL = { scaleW(245), scaleH(  8), scaleW(65), scaleH(30), "X",  TFT_DARKGREY };
 
 // ---------- Touch helpers ----------
 
@@ -455,15 +474,15 @@ void drawConfettiBackground(uint16_t baseColor, bool avoidHomeButtons) {
 }
 
 void drawHeader(const char* title) {
-  tft.fillRect(0, 0, SCREEN_W, 32, TFT_BLACK);
+  tft.fillRect(0, 0, SCREEN_W, scaleH(32), TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(ML_DATUM);
   tft.setTextFont(2);
-  tft.drawString(title, 10, 16);
+  tft.drawString(title, scaleW(10), scaleH(16));
   tft.setTextDatum(MR_DATUM);
   char buf[16];
   snprintf(buf, sizeof(buf), "Stars: %d", starsThisRound);
-  tft.drawString(buf, SCREEN_W - 10, 16);
+  tft.drawString(buf, SCREEN_W - scaleW(10), scaleH(16));
 }
 
 void drawQuestionFooter(uint16_t bg) {
@@ -472,7 +491,7 @@ void drawQuestionFooter(uint16_t bg) {
   tft.setTextColor(TFT_LIGHTGREY, bg);
   char buf[32];
   snprintf(buf, sizeof(buf), "Question %d of %d", currentQuestionIndex + 1, QUESTIONS_PER_ROUND);
-  tft.drawString(buf, SCREEN_W / 2, SCREEN_H - 8);
+  tft.drawString(buf, SCREEN_W / 2, SCREEN_H - scaleH(8));
 }
 
 // ---------- Per-question-type drawing ----------
@@ -482,14 +501,14 @@ void drawCountQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString(q.prompt, SCREEN_W / 2, 50);
+  tft.drawString(q.prompt, SCREEN_W / 2, scaleH(50));
 
-  const int radius = 20;
-  const int spacing = 50;
+  const int radius  = scaleMin(20);
+  const int spacing = scaleW(50);
   int firstRow  = (q.count > 5) ? 5 : q.count;
   int secondRow = q.count - firstRow;
-  int y1 = (secondRow > 0) ? 175 : 200;
-  int y2 = 235;
+  int y1 = (secondRow > 0) ? scaleH(175) : scaleH(200);
+  int y2 = scaleH(235);
   int x0a = (SCREEN_W - firstRow * spacing) / 2 + spacing / 2;
   for (int i = 0; i < firstRow; i++) drawShape(q.shape, x0a + i * spacing, y1, radius, bg);
   if (secondRow > 0) {
@@ -504,15 +523,15 @@ void drawMissingNumQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("What number is missing?", SCREEN_W / 2, 50);
+  tft.drawString("What number is missing?", SCREEN_W / 2, scaleH(50));
 
-  const int xPos[4] = { 50, 120, 200, 270 };
-  const int yMid = 200;
+  const int xPos[4] = { scaleW(50), scaleW(120), scaleW(200), scaleW(270) };
+  const int yMid = scaleH(200);
   tft.setTextDatum(MC_DATUM);
   for (int i = 0; i < 4; i++) {
     int v = q.seq[i];
     if (v < 0) {
-      tft.fillRect(xPos[i] - 22, yMid + 18, 44, 8, TFT_YELLOW);
+      tft.fillRect(xPos[i] - scaleW(22), yMid + scaleH(18), scaleW(44), scaleH(8), TFT_YELLOW);
     } else {
       tft.setTextFont(6);
       tft.setTextColor(TFT_WHITE, bg);
@@ -527,24 +546,25 @@ void drawTenFrameQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("How many dots?", SCREEN_W / 2, 50);
+  tft.drawString("How many dots?", SCREEN_W / 2, scaleH(50));
 
-  const int cell = 50;
-  const int gridX = 35;
-  const int gridY = 130;
+  const int cell  = scaleMin(50);
+  const int gridX = (SCREEN_W - 5 * cell) / 2;
+  const int gridY = scaleH(130);
   // Outline
   tft.drawRect(gridX, gridY, 5 * cell, 2 * cell, TFT_WHITE);
   for (int i = 1; i < 5; i++)
     tft.drawFastVLine(gridX + i * cell, gridY, 2 * cell, TFT_WHITE);
   tft.drawFastHLine(gridX, gridY + cell, 5 * cell, TFT_WHITE);
 
+  const int dotR = scaleMin(16);
   for (int row = 0; row < 2; row++) {
     for (int col = 0; col < 5; col++) {
       int n = row * 5 + col;
       int cx = gridX + col * cell + cell / 2;
       int cy = gridY + row * cell + cell / 2;
-      if (n < q.filled) tft.fillCircle(cx, cy, 16, TFT_YELLOW);
-      else              tft.drawCircle(cx, cy, 16, TFT_LIGHTGREY);
+      if (n < q.filled) tft.fillCircle(cx, cy, dotR, TFT_YELLOW);
+      else              tft.drawCircle(cx, cy, dotR, TFT_LIGHTGREY);
     }
   }
   for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
@@ -555,13 +575,13 @@ void drawAddQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("Add it up", SCREEN_W / 2, 50);
+  tft.drawString("Add it up", SCREEN_W / 2, scaleH(50));
 
   tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextSize(2);
   char eq[20];
   snprintf(eq, sizeof(eq), "%d + %d = ?", q.left, q.right);
-  tft.drawString(eq, SCREEN_W / 2, 170);
+  tft.drawString(eq, SCREEN_W / 2, scaleH(170));
   tft.setTextSize(1);
 
   for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
@@ -572,13 +592,13 @@ void drawMake10Q(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("Make 10", SCREEN_W / 2, 50);
+  tft.drawString("Make 10", SCREEN_W / 2, scaleH(50));
 
   tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextSize(2);
   char eq[20];
   snprintf(eq, sizeof(eq), "%d + ? = 10", q.left);
-  tft.drawString(eq, SCREEN_W / 2, 170);
+  tft.drawString(eq, SCREEN_W / 2, scaleH(170));
   tft.setTextSize(1);
 
   for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
@@ -589,12 +609,12 @@ void drawStartsWithQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("Which word starts with", SCREEN_W / 2, 55);
+  tft.drawString("Which word starts with", SCREEN_W / 2, scaleH(55));
 
   tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextSize(4);
   char ltr[2] = { q.targetLetter, 0 };
-  tft.drawString(ltr, SCREEN_W / 2, 110);
+  tft.drawString(ltr, SCREEN_W / 2, scaleH(110));
   tft.setTextSize(1);
 
   for (int i = 0; i < 3; i++) drawWordButton(BTN_OPT[i], q.options[i]);
@@ -605,18 +625,18 @@ void drawMissingLetterQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("Find the missing letter", SCREEN_W / 2, 50);
+  tft.drawString("Find the missing letter", SCREEN_W / 2, scaleH(50));
 
-  const int charSpacing = 70;
+  const int charSpacing = scaleW(70);
   const int xCenter = SCREEN_W / 2;
-  const int yMid = 180;
+  const int yMid = scaleH(180);
   tft.setTextDatum(MC_DATUM);
   tft.setTextSize(3);
   for (int i = 0; i < 3; i++) {
     char c = q.shown[i];
     int xi = xCenter + (i - 1) * charSpacing;
     if (c == '_') {
-      tft.fillRect(xi - 25, yMid + 32, 50, 8, TFT_YELLOW);
+      tft.fillRect(xi - scaleW(25), yMid + scaleH(32), scaleW(50), scaleH(8), TFT_YELLOW);
     } else {
       char buf[2] = { c, 0 };
       tft.setTextColor(TFT_WHITE, bg);
@@ -634,11 +654,11 @@ void drawRhymeQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("Rhymes with", SCREEN_W / 2, 55);
+  tft.drawString("Rhymes with", SCREEN_W / 2, scaleH(55));
 
   tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextSize(2);
-  tft.drawString(q.target, SCREEN_W / 2, 130);
+  tft.drawString(q.target, SCREEN_W / 2, scaleH(130));
   tft.setTextSize(1);
 
   for (int i = 0; i < 3; i++) drawWordButton(BTN_OPT[i], q.options[i]);
@@ -649,12 +669,12 @@ void drawUpperLowerQ(int idx, uint16_t bg) {
   tft.setTextColor(TFT_WHITE, bg);
   tft.setTextFont(4);
   tft.setTextDatum(TC_DATUM);
-  tft.drawString("Match this letter", SCREEN_W / 2, 55);
+  tft.drawString("Match this letter", SCREEN_W / 2, scaleH(55));
 
   tft.setTextColor(TFT_YELLOW, bg);
   tft.setTextSize(4);
   char buf[2] = { q.shown, 0 };
-  tft.drawString(buf, SCREEN_W / 2, 110);
+  tft.drawString(buf, SCREEN_W / 2, scaleH(110));
   tft.setTextSize(1);
 
   for (int i = 0; i < 3; i++) drawCharButton(BTN_OPT[i], q.options[i]);
@@ -689,10 +709,10 @@ void drawHome() {
   tft.setTextDatum(TC_DATUM);
   tft.setTextFont(4);
   tft.setTextSize(2);
-  tft.drawString("Dhruv", SCREEN_W / 2, 30);
+  tft.drawString("Dhruv", SCREEN_W / 2, scaleH(30));
   tft.setTextSize(1);
   tft.setTextColor(TFT_WHITE, bg);
-  tft.drawString("Learning Arcade", SCREEN_W / 2, 110);
+  tft.drawString("Learning Arcade", SCREEN_W / 2, scaleH(110));
 
   drawButton(BTN_MATH);
   drawButton(BTN_READING);
@@ -702,7 +722,7 @@ void drawHome() {
   tft.setTextColor(TFT_GOLD, bg);
   char buf[32];
   snprintf(buf, sizeof(buf), "Stars: %d", totalStars);
-  tft.drawString(buf, SCREEN_W / 2, SCREEN_H - 25);
+  tft.drawString(buf, SCREEN_W / 2, SCREEN_H - scaleH(25));
 }
 
 void drawFeedback() {
@@ -713,15 +733,15 @@ void drawFeedback() {
   tft.setTextFont(4);
   tft.setTextSize(2);
   if (lastAnswerCorrect) {
-    tft.drawString("Correct!", SCREEN_W / 2, 50);
+    tft.drawString("Correct!", SCREEN_W / 2, scaleH(50));
     tft.setTextSize(1);
-    drawShape(Shape::STAR, SCREEN_W / 2, 220, 60, bg);
-    tft.drawString("You got a star!", SCREEN_W / 2, 300);
+    drawShape(Shape::STAR, SCREEN_W / 2, scaleH(220), scaleMin(60), bg);
+    tft.drawString("You got a star!", SCREEN_W / 2, scaleH(300));
     drawButton(BTN_NEXT);
   } else {
-    tft.drawString("Try Again", SCREEN_W / 2, 50);
+    tft.drawString("Try Again", SCREEN_W / 2, scaleH(50));
     tft.setTextSize(1);
-    tft.drawString("You can do it!", SCREEN_W / 2, 220);
+    tft.drawString("You can do it!", SCREEN_W / 2, scaleH(220));
     drawButton(BTN_TRY);
   }
 }
@@ -733,20 +753,23 @@ void drawRoundComplete() {
   tft.setTextDatum(TC_DATUM);
   tft.setTextFont(4);
   tft.setTextSize(2);
-  tft.drawString("Great Job!", SCREEN_W / 2, 25);
+  tft.drawString("Great Job!", SCREEN_W / 2, scaleH(25));
   tft.setTextSize(1);
   if (starsThisRound > 0) {
-    int sw = starsThisRound * 50;
-    int sx = (SCREEN_W - sw) / 2 + 25;
-    for (int i = 0; i < starsThisRound; i++) drawShape(Shape::STAR, sx + i * 50, 170, 20, bg);
+    const int starSpacing = scaleW(50);
+    const int starR       = scaleMin(20);
+    int sw = starsThisRound * starSpacing;
+    int sx = (SCREEN_W - sw) / 2 + starSpacing / 2;
+    for (int i = 0; i < starsThisRound; i++)
+      drawShape(Shape::STAR, sx + i * starSpacing, scaleH(170), starR, bg);
   }
   tft.setTextColor(TFT_WHITE, bg);
   char buf[40];
   snprintf(buf, sizeof(buf), "%d out of %d", correctThisRound, QUESTIONS_PER_ROUND);
-  tft.drawString(buf, SCREEN_W / 2, 240);
+  tft.drawString(buf, SCREEN_W / 2, scaleH(240));
   tft.setTextColor(TFT_GOLD, bg);
   snprintf(buf, sizeof(buf), "Total: %d stars", totalStars);
-  tft.drawString(buf, SCREEN_W / 2, 290);
+  tft.drawString(buf, SCREEN_W / 2, scaleH(290));
   drawButton(BTN_PLAY);
   drawButton(BTN_GOHOME);
 }
@@ -758,11 +781,15 @@ void drawPinRows() {
 }
 
 void drawPinDots(int topY) {
+  const int boxW    = scaleW(40);
+  const int boxH    = scaleH(40);
+  const int spacing = scaleW(50);
+  const int x0      = (SCREEN_W - 4 * spacing) / 2 + (spacing - boxW) / 2;
   for (int i = 0; i < 4; i++) {
-    int bx = 65 + i * 50;
-    tft.drawRect(bx, topY, 40, 40, TFT_WHITE);
-    if (i < pinLen) tft.fillCircle(bx + 20, topY + 20, 8, TFT_YELLOW);
-    else            tft.fillRect(bx + 1, topY + 1, 38, 38, TFT_BLACK);
+    int bx = x0 + i * spacing;
+    tft.drawRect(bx, topY, boxW, boxH, TFT_WHITE);
+    if (i < pinLen) tft.fillCircle(bx + boxW / 2, topY + boxH / 2, scaleMin(8), TFT_YELLOW);
+    else            tft.fillRect(bx + 1, topY + 1, boxW - 2, boxH - 2, TFT_BLACK);
   }
 }
 
@@ -771,15 +798,15 @@ void drawLockScreen() {
   tft.setTextDatum(TC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextFont(4);
-  tft.drawString("Device Locked", SCREEN_W / 2, 20);
+  tft.drawString("Device Locked", SCREEN_W / 2, scaleH(20));
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setTextFont(2);
-  tft.drawString("Enter PIN to unlock", SCREEN_W / 2, 57);
-  drawPinDots(82);
+  tft.drawString("Enter PIN to unlock", SCREEN_W / 2, scaleH(57));
+  drawPinDots(scaleH(82));
   if (pinWrong) {
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.setTextFont(2);
-    tft.drawString("Wrong PIN", SCREEN_W / 2, 132);
+    tft.drawString("Wrong PIN", SCREEN_W / 2, scaleH(132));
   }
   drawPinRows();
 }
@@ -790,12 +817,12 @@ void drawAdmin() {
   tft.setTextDatum(TC_DATUM);
   tft.setTextFont(4);
   tft.setTextSize(2);
-  tft.drawString("Admin", SCREEN_W / 2, 15);
+  tft.drawString("Admin", SCREEN_W / 2, scaleH(15));
   tft.setTextSize(1);
   tft.setTextColor(TFT_GOLD, TFT_BLACK);
   char buf[40];
   snprintf(buf, sizeof(buf), "Stars: %d", totalStars);
-  tft.drawString(buf, SCREEN_W / 2, 75);
+  tft.drawString(buf, SCREEN_W / 2, scaleH(75));
 
   drawButton(BTN_RESET);
 
@@ -815,12 +842,12 @@ void drawPinEntry() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(TC_DATUM);
   tft.setTextFont(4);
-  tft.drawString("Enter PIN", SCREEN_W / 2, 20);
-  drawPinDots(70);
+  tft.drawString("Enter PIN", SCREEN_W / 2, scaleH(20));
+  drawPinDots(scaleH(70));
   if (pinWrong) {
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.setTextFont(2);
-    tft.drawString("Wrong PIN", SCREEN_W / 2, 120);
+    tft.drawString("Wrong PIN", SCREEN_W / 2, scaleH(120));
   }
   drawButton(BTN_PIN_CANCEL);
   drawPinRows();

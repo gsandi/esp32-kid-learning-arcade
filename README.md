@@ -203,6 +203,7 @@ All settings survive power cycles.
 
 ## Customizing further
 
+- **Use a different display panel:** the layout scales proportionally — change `SCREEN_W` and `SCREEN_H` near the top of `main.cpp` (and the matching `TFT_WIDTH` / `TFT_HEIGHT` in `platformio.ini` build flags) and the whole UI rescales. All hardcoded coordinates pass through `scaleW()` / `scaleH()` / `scaleMin()` helpers, so a 320×480 build is byte-identical to before, while a 240×320 or 480×800 panel adapts automatically. Caveat: TFT_eSPI built-in fonts (Font 2/4/6) are bitmap fonts at fixed pixel sizes — for very different aspect ratios you may also want to revisit the `setTextFont(N)` calls.
 - **Add a new question type:** add an entry to the `QType` enum, a new `*Bank` array, a case in `bankSizeFor()`, a draw function, and an answer-check case. Roughly 30 lines per type.
 - **Change the colors / theme:** all UI rendering is in `main.cpp`. Search for `TFT_PURPLE`, `TFT_YELLOW`, etc. to retheme.
 - **Wi-Fi or audio:** explicitly out of scope for v1 — the goal is offline + silent so the toy doesn't compete with bells and whistles for the kid's attention. PRs welcome if you disagree.
