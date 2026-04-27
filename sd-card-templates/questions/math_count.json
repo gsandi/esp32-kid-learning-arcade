@@ -1,6 +1,0 @@
-[
-  {"prompt": "How many apples?",   "shape": "apple",    "count": 4,  "wrong": [2, 6, 7]},
-  {"prompt": "How many stars?",    "shape": "star",     "count": 5,  "wrong": [3, 7, 9]},
-  {"prompt": "How many hearts?",   "shape": "heart",    "count": 10, "wrong": [7, 8, 9]},
-  {"prompt": "How many triangles?","shape": "triangle", "count": 6,  "wrong": [4, 8, 9]}
-]

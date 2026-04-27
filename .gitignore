@@ -21,6 +21,9 @@
 esp32_learning_arcade_case_v1_stls/
 esp32_learning_arcade_case_v1_stls.zip
 
+# SD-card question templates (untested with friends — re-enable for v2)
+sd-card-templates/
+
 # Internal planning docs
 esp32-learning-arcade-plan.md
 esp32-learning-arcade-full-plan_v2.md

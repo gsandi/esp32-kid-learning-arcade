@@ -12,84 +12,103 @@ A pocket-sized **offline** learning toy for kindergarten and pre-first-grade kid
 
 ---
 
-## What you'll need
+## Who this is for
 
+A parent or hobbyist who wants to build a simple offline learning toy for their kid in an afternoon. **No prior coding or electronics experience required** — if you can copy-paste a few lines into the Terminal app on your Mac, you can build one.
 
-| Item                               | Approx. price | Notes                                                                                                                                                                            |
-| ---------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 4.0" ESP32-32E touchscreen display | ~$25          | On Amazon, search **"Hosyond ESP32 4 inch display"** or **"LCDWiki ESP32-32E"**. Make sure the listing says **320×480 ST7796S** with **USB-C and CH340C**.                       |
-| USB-C **data** cable               | $0–$10        | Many USB-C cables are charge-only and won't enumerate as a serial device. If your laptop doesn't see the board after plugging it in, swap cables before debugging anything else. |
-| Computer (macOS / Windows / Linux) | —             | Only needed once for flashing. After that the device runs standalone on USB power (any phone charger works).                                                                     |
-
-
-**Total cost to build one: ~$25.**
-
-No soldering, no breadboard, no extra components. The board ships with the display already attached.
+- **Time:** ~30 minutes, most of it automated software installs the first time.
+- **Cost:** ~$25 in parts.
+- **Soldering:** none. The screen ships pre-attached.
 
 ---
 
-## One-time computer setup
+## What you'll need
 
-You need [PlatformIO](https://platformio.org/) — a build system for embedded projects.
+| Item | Approx. price | Notes |
+|---|---|---|
+| 4.0" ESP32-32E touchscreen display | ~$25 | On Amazon, search **"Hosyond ESP32 4 inch display"** or **"LCDWiki ESP32-32E"**. The listing must say **320×480 ST7796S** with **USB-C and CH340C**. |
+| USB-C **data** cable | $0–$10 | Many USB-C cables are charge-only and won't enumerate as a serial device. If your laptop doesn't see the board after plugging in, swap cables before debugging anything else. Some boards include one. |
+| A computer (Mac, Windows, or Linux) | — | Only needed once for flashing. After that the device runs standalone on USB power (any phone charger works). |
 
-### macOS
+---
+
+## Setup on macOS — the easy path
+
+This is the recommended path if you're on a MacBook.
+
+### Step 1 — Open Terminal
+
+On your Mac, press **⌘ + Space** to open Spotlight, type `Terminal`, and press **Return**. A window with a text prompt will open. Everything below happens here — just paste each command and press Return.
+
+### Step 2 — Download the project
+
+Paste this and press Return:
 
 ```bash
-brew install platformio
+cd ~/Desktop && git clone https://github.com/gsandi/esp32-kid-learning-arcade.git && cd esp32-kid-learning-arcade
 ```
 
-If your computer doesn't see the board on `/dev/cu.usbserial-*` or `/dev/cu.wchusbserial-*` after plugging it in, install the [WCH CH340 driver](https://www.wch-ic.com/downloads/CH34XSER_MAC_ZIP.html) and reboot.
+> **First-time only:** macOS may pop up a dialog asking to install "Command Line Tools for Xcode". Click **Install** and wait 5–10 minutes for it to finish, then re-run the line above. This gives you `git` and the basic compilers.
+
+### Step 3 — Run the setup script
+
+```bash
+./scripts/setup-macos.sh
+```
+
+This installs **Homebrew** (the Mac package manager) and **PlatformIO** (the embedded build system). The first run takes ~5 minutes; macOS may ask for your account password partway through — that's normal.
+
+The script is safe to re-run; anything already installed is skipped.
+
+### Step 4 — Plug in the board and flash
+
+Plug the ESP32 into your Mac with the USB-C cable, then run:
+
+```bash
+pio run -t upload
+```
+
+That's it. PlatformIO auto-detects the board, builds the firmware, and flashes it. The device boots into the home screen the moment the upload finishes (~30 seconds).
+
+Unplug it from your Mac and plug it into any phone charger — it now runs standalone.
+
+---
+
+## Setup on Windows or Linux
+
+<details>
+<summary>Click to expand</summary>
 
 ### Windows
 
-Install [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/) or the [PlatformIO IDE for VS Code](https://platformio.org/install/ide?install=vscode). Windows usually picks up the CH340 driver automatically; if it doesn't, grab it from [WCH](https://www.wch-ic.com/downloads/CH341SER_ZIP.html).
+1. Install [PlatformIO IDE for VS Code](https://platformio.org/install/ide?install=vscode).
+2. Open the project folder in VS Code.
+3. Plug in the board. Windows usually picks up the CH340 driver automatically; if it doesn't, grab it from [WCH](https://www.wch-ic.com/downloads/CH341SER_ZIP.html).
+4. Click the PlatformIO **upload** button (right-arrow icon in the bottom toolbar).
 
 ### Linux
 
 ```bash
 pip install --user platformio
 sudo usermod -aG dialout $USER   # then log out and back in
-```
-
----
-
-## Build & flash
-
-```bash
 git clone https://github.com/gsandi/esp32-kid-learning-arcade.git
 cd esp32-kid-learning-arcade
-
-# Find your board's serial port:
-pio device list
-# Look for the entry whose Description contains "CH340" or "wchusbserial".
-# On macOS it'll look like /dev/cu.usbserial-110 or /dev/cu.wchusbserial-110.
-
-# Open platformio.ini and update upload_port and monitor_port to match,
-# then build & flash:
 pio run -t upload
 ```
 
-That's it — the device boots into the home screen as soon as the upload finishes.
-
-To watch serial logs (useful if something goes wrong):
-
-```bash
-pio device monitor
-```
+</details>
 
 ---
 
-## Personalize it before you flash
+## Personalize before flashing
 
 All personalization lives in `src/main.cpp`. Three things you'll almost certainly want to change:
 
-
-| What                              | Where                                                 | Default                     |
-| --------------------------------- | ----------------------------------------------------- | --------------------------- |
-| **Kid's name** on the home screen | `tft.drawString("Dhruv", ...)` (search for `"Dhruv"`) | `"Dhruv"`                   |
-| **Admin PIN** for resetting stars | `const char* const ADMIN_PIN = "...";`                | `"0000"` — **change this!** |
-| **Questions per round**           | `constexpr int QUESTIONS_PER_ROUND`                   | `5`                         |
-
+| What | Where | Default |
+|---|---|---|
+| **Kid's name** on the home screen | `tft.drawString("Dhruv", ...)` (search for `"Dhruv"`) | `"Dhruv"` |
+| **Admin PIN** for resetting stars | `const char* const ADMIN_PIN = "...";` | `"0000"` — **change this!** |
+| **Questions per round** | `constexpr int QUESTIONS_PER_ROUND` | `5` |
 
 The question banks are also in `src/main.cpp` as plain C arrays. Search for any of:
 
@@ -98,7 +117,7 @@ countBank, missingNumBank, addBank, make10Bank, tenFrameBank,
 startsWithBank, missingLetterBank, rhymeBank, upperLowerBank
 ```
 
-Adding a question is one line of code per bank. Reflash with `pio run -t upload` to pick up the changes.
+Adding a question is one line of code per bank. Re-flash with `pio run -t upload` to pick up the changes.
 
 ---
 
@@ -116,20 +135,32 @@ Adding a question is one line of code per bank. Reflash with `pio run -t upload`
 2. Enter your admin PIN (default `0000` — change it in `main.cpp` before flashing).
 3. The admin screen has four controls:
 
-
-| Button                   | What it does                                                                                         |
-| ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| **Reset Stars**          | Zeroes the star count and returns to home                                                            |
-| **Lock: ON / OFF**       | When ON, device requires the PIN after screensaver or power-on — good for shared devices             |
-| **Math: Easy / Hard**    | Easy = counting, ten-frame, addition; Hard = all five types including missing-number and make-10     |
+| Button | What it does |
+|---|---|
+| **Reset Stars** | Zeroes the star count and returns to home |
+| **Lock: ON / OFF** | When ON, device requires the PIN after screensaver or power-on — good for shared devices |
+| **Math: Easy / Hard** | Easy = counting, ten-frame, addition; Hard = all five types including missing-number and make-10 |
 | **Reading: Easy / Hard** | Easy = starts-with and uppercase/lowercase; Hard = all four types including rhyme and missing-letter |
-
 
 All settings survive power cycles.
 
 ---
 
-## Touch calibration
+## Troubleshooting
+
+| Symptom | Likely cause + fix |
+|---|---|
+| **macOS asks for your password during setup** | That's the Homebrew installer. Type your Mac account password and press Return — it's not sent anywhere. |
+| **`zsh: command not found: pio`** after the setup script | Quit Terminal and open a fresh window. PATH changes only apply to new shells. |
+| **PlatformIO can't find the board** | (1) USB-C cable is charge-only — try a different cable. (2) CH340 driver missing — install [WCH CH340](https://www.wch-ic.com/downloads/CH34XSER_MAC_ZIP.html) and reboot. (3) Multiple USB serial devices plugged in — set `upload_port` explicitly in `platformio.ini`. |
+| **Display is white / blank** | Confirm `-DST7796_DRIVER=1` is in `platformio.ini`, not `ILI9486` or `ILI9488`. Some sellers ship the same physical board with different controllers. |
+| **Touch is mirrored or upside-down** | Swap the values inside the `RAW_X_*` or `RAW_Y_*` pair in `main.cpp` (see Touch calibration below). |
+| **Letters render blank but numbers work** | You're using TFT_eSPI Font 6 — it's digits + punctuation only. Use Font 4 with `setTextSize(2)` for big readable text. |
+| **Upload fails with "Connecting…" hang** | Hold the BOOT button on the back of the board, hit `pio run -t upload`, release BOOT once "Connecting…" prints. (Most CH340C boards auto-reset and don't need this — but if yours has a flaky USB-C jack, the manual dance helps.) |
+
+---
+
+## Touch calibration (only if your taps land in the wrong place)
 
 The four `RAW_X_LEFT / RAW_X_RIGHT / RAW_Y_TOP / RAW_Y_BOTTOM` constants near the top of `main.cpp` are tuned to the panel I built on. XPT2046 resistive touch panels vary slightly between units, so your touch may be off by a handful of pixels. With the 60–80px game buttons it's usually fine without recalibration.
 
@@ -137,64 +168,10 @@ If your buttons feel off (or your taps land in the wrong corner entirely):
 
 1. In `loop()`, temporarily add a serial print of the **raw** touch coordinates (`tft.getTouchRaw(&rx, &ry)` — don't apply the `map()` transform).
 2. Open `pio device monitor`, then tap each of the four corners of the screen and write down the raw values.
-3. Update the four `RAW_`* constants with your readings (X axis: leftmost-tap → `RAW_X_LEFT`, rightmost-tap → `RAW_X_RIGHT`. Y axis: same).
+3. Update the four `RAW_*` constants with your readings (X axis: leftmost-tap → `RAW_X_LEFT`, rightmost-tap → `RAW_X_RIGHT`. Y axis: same).
 4. Re-flash with `pio run -t upload`.
 
 If the touch axes are mirrored (tapping left registers right), swap the values inside the `RAW_X_LEFT` / `RAW_X_RIGHT` pair (or the `RAW_Y_*` pair). That's it — no code change needed, just swap the numbers.
-
----
-
-## Troubleshooting
-
-
-| Symptom                                   | Likely cause + fix                                                                                                                                                                                                                 |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PlatformIO can't find the board**       | USB cable is charge-only (try another cable) → CH340 driver not installed (see setup) → wrong `upload_port` in `platformio.ini` (run `pio device list`).                                                                           |
-| **Display is white / blank**              | Confirm `-DST7796_DRIVER=1` is in `platformio.ini`, not `ILI9486` or `ILI9488`. Some sellers ship the same physical board with different controllers.                                                                              |
-| **Touch is mirrored or upside-down**      | Swap the values inside the `RAW_X_`* or `RAW_Y_*` pair (see Touch calibration above).                                                                                                                                              |
-| **Letters render blank but numbers work** | You're using TFT_eSPI Font 6 — it's digits + punctuation only. Use Font 4 with `setTextSize(2)` for big readable text.                                                                                                             |
-| **Upload fails with "Connecting…" hang**  | Hold the BOOT button on the back of the board, hit `pio run -t upload`, release BOOT once "Connecting…" prints. (Most CH340C boards auto-reset and don't need this — but if yours has a flaky USB-C jack, the manual dance helps.) |
-
-
----
-
-## Adding your own questions (SD card)
-
-No recompile needed. Copy the template files from `sd-card-templates/questions/` onto a FAT32-formatted microSD card and pop it into the slot on the back of the board. On boot, the firmware loads those files and appends the questions to the built-in bank. Remove the card and the hardcoded questions still work as a fallback.
-
-**File → question type mapping:**
-
-
-| File                                    | Game    | Type                            |
-| --------------------------------------- | ------- | ------------------------------- |
-| `questions/math_count.json`             | Math    | Count the shapes                |
-| `questions/math_missing_num.json`       | Math    | Missing number in sequence      |
-| `questions/math_add.json`               | Math    | Addition under 10               |
-| `questions/math_make10.json`            | Math    | What makes 10?                  |
-| `questions/math_ten_frame.json`         | Math    | Ten frame count                 |
-| `questions/reading_starts_with.json`    | Reading | What letter does it start with? |
-| `questions/reading_missing_letter.json` | Reading | Fill in the missing letter      |
-| `questions/reading_rhyme.json`          | Reading | Which word rhymes?              |
-| `questions/reading_upper_lower.json`    | Reading | Match uppercase / lowercase     |
-
-
-**Format at a glance (copy a line, edit it):**
-
-```json
-// math_add.json — "a + b = ?", list 3 wrong answers, firmware picks correct = a+b
-{"a": 4, "b": 6, "wrong": [8, 9, 11]}
-
-// reading_starts_with.json — "correct" is the 0-based index of the right answer
-{"letter": "W", "options": ["Dog", "Cat", "Worm"], "correct": 2}
-
-// math_count.json — shape names: apple ball star flower moon heart triangle square
-{"prompt": "How many stars?", "shape": "star", "count": 5, "wrong": [3, 7, 9]}
-
-// math_missing_num.json — use -1 to mark the blank position in the sequence
-{"seq": [2, 4, -1, 8], "options": [5, 6, 9], "correct": 6}
-```
-
-Each file is a JSON array `[...]` — just add lines between the `[` and `]`. Max 64 questions per type (32 for ten-frame and missing-number).
 
 ---
 
@@ -211,8 +188,9 @@ Each file is a JSON array `[...]` — just add lines between the `[` and `]`. Ma
 ```
 esp32-kid-learning-arcade/
 ├── platformio.ini                   # Build config + TFT_eSPI pin flags
+├── scripts/setup-macos.sh           # One-shot macOS setup (Homebrew + PlatformIO)
 ├── src/main.cpp                     # All firmware (~1400 lines, single file by design)
-├── sd-card-templates/questions/     # JSON templates for adding questions via SD card
+├── assets/                          # Photos used in this README
 ├── LICENSE
 └── README.md
 ```
@@ -223,11 +201,10 @@ The firmware is intentionally a single file. It's easy to read top-to-bottom —
 
 ## Hardware reference
 
-If you want to dig into pinouts or extend the firmware to use the SD slot, the board's spec page is at [lcdwiki.com/4.0inch_ESP32-32E_Display](http://www.lcdwiki.com/4.0inch_ESP32-32E_Display). Key facts:
+If you want to dig into pinouts or extend the firmware, the board's spec page is at [lcdwiki.com/4.0inch_ESP32-32E_Display](http://www.lcdwiki.com/4.0inch_ESP32-32E_Display). Key facts:
 
 - ESP32-WROOM-32E, 4 MB flash, 520 KB SRAM
 - Display + touch share SPI on GPIO 12/13/14
-- SD card is on a **separate** SPI bus (HSPI on 18/19/23) — don't try to share with the display
 - Touch IRQ is on GPIO 36 (input-only, no internal pullup)
 
 ---
@@ -242,4 +219,3 @@ If you want to dig into pinouts or extend the firmware to use the SD slot, the b
 
 - Display driver: [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) by Bodmer
 - Hardware: 4.0" ESP32-32E from [LCDWiki](http://www.lcdwiki.com/4.0inch_ESP32-32E_Display) / Hosyond
-
