@@ -359,11 +359,10 @@ const Button BTN_PIN_CLEAR  = { scaleW( 45), scaleH(360), scaleW(70), scaleH(55)
 const Button BTN_PIN_OK     = { scaleW(205), scaleH(360), scaleW(70), scaleH(55), "OK", TFT_GREEN    };
 const Button BTN_PIN_CANCEL = { scaleW(245), scaleH(  8), scaleW(65), scaleH(30), "X",  TFT_DARKGREY };
 
-// Exit-game tap zone in the question-screen header (top-left). Drawn as a small
-// X icon by drawHeader, not as a full button — so flashButton on tap is
-// visually subtle, which is intentional: parents can use it freely, kids
-// won't accidentally bail mid-round.
-const Button BTN_EXIT_GAME = { scaleW(2), scaleH(2), scaleW(40), scaleH(28), "", TFT_BLACK };
+// Exit-game tap zone in the question-screen header (top-left). Drawn as a
+// visible rounded button with a white X icon — big enough to actually hit
+// reliably, but in the header strip so it doesn't compete with answer buttons.
+const Button BTN_EXIT_GAME = { scaleW(4), scaleH(4), scaleW(54), scaleH(40), "", 0x18C3 /* dim grey */ };
 
 // ---------- Touch helpers ----------
 
@@ -523,32 +522,40 @@ void drawConfettiBackground(uint16_t baseColor, bool avoidHomeButtons) {
 }
 
 void drawHeader(const char* title) {
-  tft.fillRect(0, 0, SCREEN_W, scaleH(32), TFT_BLACK);
+  // Black header strip stays 32px tall — body content above y=50 is still safe.
+  // The exit button is taller and "pops out" past the strip into the body area;
+  // it sits in the top-left corner where centred titles never reach.
+  const int16_t headerH = scaleH(32);
+  tft.fillRect(0, 0, SCREEN_W, headerH, TFT_BLACK);
 
-  // Exit "X" icon (top-left) — the tap zone is BTN_EXIT_GAME.
+  // Exit button: dim-grey rounded rect with a thick white X. Extends below the
+  // header strip — that's intentional for tap-target size.
   {
-    const int16_t cx = BTN_EXIT_GAME.x + BTN_EXIT_GAME.w / 2;
-    const int16_t cy = BTN_EXIT_GAME.y + BTN_EXIT_GAME.h / 2;
-    const int16_t s  = scaleMin(7);
-    // Draw 3 stacked diagonals for thickness, since drawLine is 1px wide.
-    for (int8_t d = -1; d <= 1; d++) {
-      tft.drawLine(cx - s, cy - s + d, cx + s, cy + s + d, TFT_LIGHTGREY);
-      tft.drawLine(cx + s, cy - s + d, cx - s, cy + s + d, TFT_LIGHTGREY);
+    const Button& b = BTN_EXIT_GAME;
+    const int16_t r = scaleMin(8);
+    tft.fillRoundRect(b.x, b.y, b.w, b.h, r, b.fill);
+    tft.drawRoundRect(b.x, b.y, b.w, b.h, r, TFT_LIGHTGREY);
+    const int16_t cx = b.x + b.w / 2;
+    const int16_t cy = b.y + b.h / 2;
+    const int16_t s  = scaleMin(10);
+    for (int8_t d = -2; d <= 2; d++) {
+      tft.drawLine(cx - s, cy - s + d, cx + s, cy + s + d, TFT_WHITE);
+      tft.drawLine(cx + s, cy - s + d, cx - s, cy + s + d, TFT_WHITE);
     }
   }
 
-  // Title — shifted right of the X icon.
+  // Title — left side of the header, after the exit button's X.
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(ML_DATUM);
   tft.setTextFont(2);
-  tft.drawString(title, scaleW(50), scaleH(16));
+  tft.drawString(title, BTN_EXIT_GAME.x + BTN_EXIT_GAME.w + scaleW(8), headerH / 2);
 
   // Progress dots: gold = answered correctly, white = current, dark outline = upcoming.
   const int dotR       = scaleMin(5);
   const int dotSpacing = scaleW(15);
   const int rightPad   = scaleW(10);
-  const int dotsRight  = SCREEN_W - rightPad;
-  const int dotsY      = scaleH(16);
+  const int dotsRight  = SCREEN_W - rightPad - dotR;
+  const int dotsY      = headerH / 2;
   for (int i = 0; i < QUESTIONS_PER_ROUND; i++) {
     int dx = dotsRight - (QUESTIONS_PER_ROUND - 1 - i) * dotSpacing;
     if (i < currentQuestionIndex)        tft.fillCircle(dx, dotsY, dotR, TFT_GOLD);
@@ -1167,8 +1174,10 @@ void handleTap(int16_t sx, int16_t sy) {
         if (strcmp(pinBuffer, ADMIN_PIN) == 0) {
           pinLen = 0; pinBuffer[0] = 0; pinWrong = false;
           currentScreen = Screen::ADMIN;
+          Serial.println("ADMIN: PIN ok → admin panel");
         } else {
           pinLen = 0; pinBuffer[0] = 0; pinWrong = true;
+          Serial.println("ADMIN: PIN wrong");
         }
         needsRedraw = true;
         return;
@@ -1555,9 +1564,13 @@ void loop() {
       currentScreen  = Screen::PIN_ENTRY;
       needsRedraw    = true;
       adminHoldArmed = false;
-      Serial.println("PIN entry unlocked.");
+      Serial.println("ADMIN HOLD: triggered → PIN entry");
     }
   } else if (!isTouched) {
+    if (adminHoldArmed) {
+      Serial.printf("ADMIN HOLD: lost at %lums (need %lums)\n",
+                    millis() - touchStartMs, ADMIN_HOLD_MS);
+    }
     adminHoldArmed = false;
   }
   wasTouched = isTouched;
