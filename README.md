@@ -5,10 +5,13 @@ A pocket-sized **offline** learning toy for kindergarten and pre-first-grade kid
 > Built so my 6-year-old has something to play with on long car rides without me handing over a tablet.
 
 <p align="center">
-  <img src="assets/PXL_20260425_230540094.jpg" width="45%" alt="Home screen showing Math Game and Reading Game buttons"/>
+  <a href="https://youtube.com/shorts/shdxOJd6aZ0">
+    <img src="https://img.youtube.com/vi/shdxOJd6aZ0/hqdefault.jpg" width="45%" alt="Demo video — tap to watch"/>
+  </a>
   &nbsp;&nbsp;
   <img src="assets/PXL_20260425_230835775.jpg" width="45%" alt="Round complete screen showing 5 stars and Total: 30 stars"/>
 </p>
+<p align="center"><em>▶ <a href="https://youtube.com/shorts/shdxOJd6aZ0">Watch the demo</a></em></p>
 
 ---
 
