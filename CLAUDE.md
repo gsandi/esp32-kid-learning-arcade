@@ -4,24 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo currently contains only planning docs — no source code, no `platformio.ini`, no build system yet. The authoritative spec is `esp32-learning-arcade-plan.md`. Read it before any implementation work; it defines scope, milestones, screens, data shapes, and the build order.
+**Public** at `gsandi/esp32-kid-learning-arcade`. `main` is live and stable — only push tested, device-flashed code there.
 
 `changelog-claude.md` is appended to with a short entry per Claude Code session (timestamp, prompt, work done). Keep adding entries there.
 
 ## Project
 
-A kid-friendly offline touchscreen learning toy for a 6-year-old. Two games (Math: count-and-pick; Spelling: starts-with-letter), 5 questions per round, stars as the only reward, no penalties/timers. Target hardware is a Hosyond 4.0" 320x480 ST7796S touchscreen on ESP32-32E.
+Offline touchscreen learning toy for a 6-year-old. Two games — **Math** (counting, missing numbers, ten-frame, add under 10, make-10, skip counting by 2s/3s) and **Reading** (starts-with letter, missing letter, rhyme, upper/lowercase). 5 questions per round, stars only reward, no penalties/timers. Hardware: Hosyond 4.0" 320×480 ST7796S on ESP32-32E.
 
-## Target stack
+## Stack (actual)
 
-- C++ on Arduino / **PlatformIO** (board: `esp32dev`)
-- **LVGL** for UI
-- **TFT_eSPI** or **LovyanGFX** for the ST7796S display
-- **XPT2046_Touchscreen** (or LovyanGFX's built-in XPT2046 driver) — resistive, needs calibration on first boot
-- **Preferences** (NVS) for persistent star count; LittleFS later if needed
-- Offline-first; Wi-Fi/audio are explicitly out of scope for v1
+- C++ / **PlatformIO** (`esp32dev`)
+- **TFT_eSPI** — display driver (ST7796S) and touch (XPT2046 via `TOUCH_CS`)
+- **Preferences** (NVS) — persistent star count + settings (`learning` namespace)
+- **ArduinoJson** + SD card — optional question bank loading (v2; gitignored until tested)
+- Single-file firmware: `src/main.cpp`. No LVGL. Don't add abstraction layers unless splitting is unavoidable.
 
-When the project is bootstrapped, follow the file layout in the plan (`src/main.cpp`, `AppState.*`, `MathGame.*`, `SpellingGame.*`, `ProgressStore.*`, `UI.*`). The plan also says it's fine to start everything in `main.cpp` and split later — don't over-structure v1.
+## Git workflow
+
+Repo is public. `main` must always be stable and device-tested.
+
+```
+main          ← public, stable, flashed. Never push untested code here.
+feat/<name>   ← new features (e.g. feat/skip-counting, feat/multiplication)
+fix/<name>    ← bug fixes
+```
+
+**Rules:**
+1. All new work goes on a branch — never commit experimental code directly to `main`.
+2. Build passes (`pio run`) before merging.
+3. Flash to device and verify before merging to `main`.
+4. Stash or branch for in-progress work that isn't ready to commit.
+5. Merge branch → `main` locally, then push. No force-push to `main`.
 
 ## Hardware: Hosyond / LCDWiki 4.0" ESP32-32E (E32R40T)
 
@@ -82,26 +96,13 @@ GPIO 36 is input-only — fine for touch IRQ, but no internal pull-up; XPT2046 I
 
 In PlatformIO, prefer setting these via `build_flags` in `platformio.ini` rather than editing the library's `User_Setup.h` (which gets clobbered on dependency reinstall).
 
-## Build order (do not skip ahead)
-
-The plan specifies a strict order; the display/touch bring-up gate matters because ST7796S boards routinely ship with wrong driver/pin/rotation/touch-mapping defaults.
-
-1. Display + touch bring-up (Milestone 1) — must be stable before any game work
-2. Home screen with two buttons
-3. Math game with hardcoded questions
-4. Feedback screen
-5. Spelling game with hardcoded questions
-6. Round complete screen
-7. Persist stars via `Preferences` (`learning` namespace, `stars` key)
-8. Polish
-
 ## Design constraints to respect
 
 - 320x480 portrait. Min touch target 60 px; answer buttons 60–80 px tall, 90–120 px wide.
 - No emoji in v1 — embedded fonts won't render them. Use drawn shapes/letters.
 - Wrong-answer screen must be soft and encouraging — no red flashes, buzzers, or timers.
 - `QUESTIONS_PER_ROUND = 5`. Wrong answers cost nothing; only correct answers add a star.
-- Question banks are hardcoded C arrays in v1 (`MathQuestion[]`, `SpellingQuestion[]`); no JSON/SD-card loading yet.
+- Question banks are hardcoded C arrays (`CountQ[]`, `AddQ[]`, etc.) with optional SD-card override — SD loading is wired but gitignored until end-to-end tested.
 
 ## Common PlatformIO commands (once `platformio.ini` exists)
 
