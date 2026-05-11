@@ -432,7 +432,8 @@ const Button BTN_RESET       = { scaleW(30), scaleH(115), scaleW(260), scaleH(50
 const Button BTN_LOCK_TOGGLE = { scaleW(30), scaleH(175), scaleW(260), scaleH(50), "",            TFT_NAVY     };
 const Button BTN_MATH_DIFF   = { scaleW(30), scaleH(235), scaleW(260), scaleH(50), "",            TFT_DARKCYAN };
 const Button BTN_READ_DIFF   = { scaleW(30), scaleH(235), scaleW(260), scaleH(50), "",            TFT_DARKGREEN};
-const Button BTN_CANCEL      = { scaleW(60), scaleH(305), scaleW(200), scaleH(50), "Cancel",      TFT_DARKGREY };
+const Button BTN_STAR_ADD    = { scaleW(30), scaleH(305), scaleW(260), scaleH(50), "+50 Stars",   TFT_OLIVE    };
+const Button BTN_CANCEL      = { scaleW(60), scaleH(370), scaleW(200), scaleH(50), "Cancel",      TFT_DARKGREY };
 
 const Button BTN_OPT[3] = {
   { scaleW(20),  scaleH(330), scaleW(80), scaleH(90), "", TFT_PURPLE },
@@ -1060,7 +1061,7 @@ void drawAdmin() {
   snprintf(lblRead, sizeof(lblRead), "Reading: %s", readDifficulty ? "Hard" : "Easy");
   drawWordButton(BTN_LOCK_TOGGLE, lblLock);
   drawWordButton(BTN_READ_DIFF,   lblRead);
-
+  drawButton(BTN_STAR_ADD);
   drawButton(BTN_CANCEL);
 }
 
@@ -1354,6 +1355,11 @@ void handleTap(int16_t sx, int16_t sy) {
         flashButton(BTN_READ_DIFF);
         readDifficulty = !readDifficulty;
         saveSettings();
+        needsRedraw = true;
+      } else if (tapInside(BTN_STAR_ADD, sx, sy)) {
+        flashButton(BTN_STAR_ADD);
+        totalStars += 50;
+        saveStars();
         needsRedraw = true;
       } else if (tapInside(BTN_CANCEL, sx, sy)) {
         flashButton(BTN_CANCEL);
