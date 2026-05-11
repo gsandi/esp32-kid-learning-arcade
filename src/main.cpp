@@ -8,7 +8,7 @@
 
 #include "fonts/NotoSansBold36.h"
 
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.2.0"
 
 TFT_eSPI tft = TFT_eSPI();
 Preferences prefs;
@@ -53,7 +53,7 @@ enum class Screen   { HOME, QUESTION, FEEDBACK, ROUND_COMPLETE, PIN_ENTRY, ADMIN
 enum class GameMode { NONE, MATH, READING };
 enum class Shape    { APPLE, BALL, STAR, FLOWER, MOON, HEART, TRIANGLE, SQUARE };
 enum class QType    { COUNT, MISSING_NUMBER, TEN_FRAME, ADD_UNDER_10, MAKE_TEN,
-                      STARTS_WITH, MISSING_LETTER, RHYME, UPPER_LOWER, SKIP_COUNT };
+                      STARTS_WITH, MISSING_LETTER, RHYME, UPPER_LOWER, SKIP_COUNT, MULTIPLY };
 
 Screen   currentScreen        = Screen::HOME;
 GameMode currentGameMode      = GameMode::NONE;
@@ -310,21 +310,92 @@ struct SkipQ {
   int correct;   // shown[2] + step
 };
 static const SkipQ SKIP_DEFAULT[] = {
+  // count by 2s
   {2, { 2,  4,  6}, { 7,  8,  9},  8},
   {2, { 4,  6,  8}, { 9, 10, 11}, 10},
   {2, { 6,  8, 10}, {11, 12, 13}, 12},
   {2, { 8, 10, 12}, {13, 14, 15}, 14},
   {2, { 0,  2,  4}, { 5,  6,  7},  6},
   {2, {10, 12, 14}, {15, 16, 17}, 16},
+  // count by 3s
   {3, { 3,  6,  9}, {10, 11, 12}, 12},
   {3, { 6,  9, 12}, {13, 14, 15}, 15},
   {3, { 9, 12, 15}, {16, 17, 18}, 18},
   {3, { 0,  3,  6}, { 7,  8,  9},  9},
   {3, {12, 15, 18}, {19, 20, 21}, 21},
   {3, {15, 18, 21}, {22, 23, 24}, 24},
+  // count by 4s
+  {4, { 4,  8, 12}, {13, 16, 15}, 16},
+  {4, { 8, 12, 16}, {17, 20, 19}, 20},
+  {4, {12, 16, 20}, {21, 24, 25}, 24},
+  {4, { 0,  4,  8}, { 9, 11, 12}, 12},
+  {4, {16, 20, 24}, {25, 28, 27}, 28},
+  {4, {20, 24, 28}, {29, 32, 33}, 32},
+  // count by 5s
+  {5, { 5, 10, 15}, {18, 19, 20}, 20},
+  {5, {10, 15, 20}, {23, 24, 25}, 25},
+  {5, {15, 20, 25}, {28, 29, 30}, 30},
+  {5, { 0,  5, 10}, {13, 14, 15}, 15},
+  {5, {20, 25, 30}, {33, 35, 36}, 35},
+  {5, {25, 30, 35}, {38, 40, 42}, 40},
 };
 static SkipQ skipBank[32];
 static int   skipBankSize = 0;
+
+struct MultiplyQ {
+  int left;
+  int right;
+  int options[3];
+  int correct;
+};
+static const MultiplyQ MULTIPLY_DEFAULT[] = {
+  // 2× table
+  {2,  1, { 4,  2,  3},  2},
+  {2,  2, { 2,  4,  6},  4},
+  {2,  3, { 4,  6,  8},  6},
+  {2,  4, { 6,  8, 10},  8},
+  {2,  5, { 8, 10, 12}, 10},
+  {2,  6, {10, 12, 14}, 12},
+  {2,  7, {12, 14, 16}, 14},
+  {2,  8, {14, 16, 18}, 16},
+  {2,  9, {16, 18, 20}, 18},
+  {2, 10, {18, 20, 22}, 20},
+  // 3× table
+  {3,  1, { 6,  3,  9},  3},
+  {3,  2, { 3,  6,  9},  6},
+  {3,  3, { 6,  9, 12},  9},
+  {3,  4, { 9, 12, 15}, 12},
+  {3,  5, {12, 15, 18}, 15},
+  {3,  6, {15, 18, 21}, 18},
+  {3,  7, {18, 21, 24}, 21},
+  {3,  8, {21, 24, 27}, 24},
+  {3,  9, {24, 27, 30}, 27},
+  {3, 10, {27, 30, 33}, 30},
+  // 4× table
+  {4,  1, { 8,  4,  3},  4},
+  {4,  2, { 4,  8, 12},  8},
+  {4,  3, { 8, 12, 16}, 12},
+  {4,  4, {12, 16, 20}, 16},
+  {4,  5, {16, 20, 24}, 20},
+  {4,  6, {20, 24, 28}, 24},
+  {4,  7, {24, 28, 32}, 28},
+  {4,  8, {28, 32, 36}, 32},
+  {4,  9, {32, 36, 40}, 36},
+  {4, 10, {36, 40, 44}, 40},
+  // 5× table
+  {5,  1, { 5, 10,  3},  5},
+  {5,  2, { 5, 10, 15}, 10},
+  {5,  3, {10, 15, 20}, 15},
+  {5,  4, {15, 20, 25}, 20},
+  {5,  5, {20, 25, 30}, 25},
+  {5,  6, {25, 30, 35}, 30},
+  {5,  7, {30, 35, 40}, 35},
+  {5,  8, {35, 40, 45}, 40},
+  {5,  9, {40, 45, 50}, 45},
+  {5, 10, {45, 50, 55}, 50},
+};
+static MultiplyQ multiplyBank[64];
+static int       multiplyBankSize = 0;
 
 int bankSizeFor(QType t) {
   switch (t) {
@@ -338,6 +409,7 @@ int bankSizeFor(QType t) {
     case QType::RHYME:           return rhymeBankSize;
     case QType::UPPER_LOWER:     return upperLowerBankSize;
     case QType::SKIP_COUNT:      return skipBankSize;
+    case QType::MULTIPLY:        return multiplyBankSize;
   }
   return 0;
 }
@@ -359,8 +431,8 @@ const Button BTN_GOHOME  = { scaleW(175), scaleH(390), scaleW(120), scaleH(70), 
 const Button BTN_RESET       = { scaleW(30), scaleH(115), scaleW(260), scaleH(50), "Reset Stars", TFT_RED      };
 const Button BTN_LOCK_TOGGLE = { scaleW(30), scaleH(175), scaleW(260), scaleH(50), "",            TFT_NAVY     };
 const Button BTN_MATH_DIFF   = { scaleW(30), scaleH(235), scaleW(260), scaleH(50), "",            TFT_DARKCYAN };
-const Button BTN_READ_DIFF   = { scaleW(30), scaleH(295), scaleW(260), scaleH(50), "",            TFT_DARKGREEN};
-const Button BTN_CANCEL      = { scaleW(60), scaleH(365), scaleW(200), scaleH(50), "Cancel",      TFT_DARKGREY };
+const Button BTN_READ_DIFF   = { scaleW(30), scaleH(235), scaleW(260), scaleH(50), "",            TFT_DARKGREEN};
+const Button BTN_CANCEL      = { scaleW(60), scaleH(305), scaleW(200), scaleH(50), "Cancel",      TFT_DARKGREY };
 
 const Button BTN_OPT[3] = {
   { scaleW(20),  scaleH(330), scaleW(80), scaleH(90), "", TFT_PURPLE },
@@ -809,6 +881,23 @@ void drawSkipQ(int idx, uint16_t bg) {
   for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
 }
 
+void drawMultiplyQ(int idx, uint16_t bg) {
+  MultiplyQ& q = multiplyBank[idx];
+  tft.setTextColor(TFT_WHITE, bg);
+  tft.setTextFont(4);
+  tft.setTextDatum(TC_DATUM);
+  tft.drawString("What is", SCREEN_W / 2, scaleH(50));
+
+  tft.setTextColor(TFT_YELLOW, bg);
+  char eq[20];
+  snprintf(eq, sizeof(eq), "%d x %d = ?", q.left, q.right);
+  useBigFont();
+  tft.drawString(eq, SCREEN_W / 2, scaleH(170));
+  useDefaultFont();
+
+  for (int i = 0; i < 3; i++) drawNumberButton(BTN_OPT[i], q.options[i]);
+}
+
 void drawCurrentQuestion() {
   RoundEntry& e = currentRound[currentQuestionIndex];
   uint16_t bg = (currentGameMode == GameMode::MATH) ? TFT_DARKCYAN : TFT_DARKGREEN;
@@ -826,6 +915,7 @@ void drawCurrentQuestion() {
     case QType::RHYME:           drawRhymeQ(e.idx, bg);          break;
     case QType::UPPER_LOWER:     drawUpperLowerQ(e.idx, bg);     break;
     case QType::SKIP_COUNT:      drawSkipQ(e.idx, bg);           break;
+    case QType::MULTIPLY:        drawMultiplyQ(e.idx, bg);       break;
   }
   drawQuestionFooter(bg);
 }
@@ -965,12 +1055,10 @@ void drawAdmin() {
 
   drawButton(BTN_RESET);
 
-  char lblLock[16], lblMath[18], lblRead[20];
-  snprintf(lblLock, sizeof(lblLock), "Lock: %s",    lockEnabled      ? "ON"   : "OFF");
-  snprintf(lblMath, sizeof(lblMath), "Math: %s",    mathDifficulty   ? "Hard" : "Easy");
-  snprintf(lblRead, sizeof(lblRead), "Reading: %s", readDifficulty   ? "Hard" : "Easy");
+  char lblLock[16], lblRead[20];
+  snprintf(lblLock, sizeof(lblLock), "Lock: %s",    lockEnabled    ? "ON"   : "OFF");
+  snprintf(lblRead, sizeof(lblRead), "Reading: %s", readDifficulty ? "Hard" : "Easy");
   drawWordButton(BTN_LOCK_TOGGLE, lblLock);
-  drawWordButton(BTN_MATH_DIFF,   lblMath);
   drawWordButton(BTN_READ_DIFF,   lblRead);
 
   drawButton(BTN_CANCEL);
@@ -1081,19 +1169,14 @@ void buildRound(const QType* types, int nTypes) {
 }
 
 void startMathRound() {
-  static const QType MATH_EASY[] = {
-    QType::COUNT, QType::TEN_FRAME, QType::ADD_UNDER_10
-  };
-  static const QType MATH_HARD[] = {
-    QType::COUNT, QType::MISSING_NUMBER, QType::TEN_FRAME,
-    QType::ADD_UNDER_10, QType::MAKE_TEN, QType::SKIP_COUNT
+  static const QType MATH_POOL[] = {
+    QType::SKIP_COUNT, QType::MULTIPLY
   };
   currentGameMode      = GameMode::MATH;
   currentQuestionIndex = 0;
   correctThisRound     = 0;
   starsThisRound       = 0;
-  if (mathDifficulty == 0) buildRound(MATH_EASY, sizeof(MATH_EASY) / sizeof(MATH_EASY[0]));
-  else                     buildRound(MATH_HARD, sizeof(MATH_HARD) / sizeof(MATH_HARD[0]));
+  buildRound(MATH_POOL, sizeof(MATH_POOL) / sizeof(MATH_POOL[0]));
   currentScreen = Screen::QUESTION;
   needsRedraw   = true;
 }
@@ -1137,6 +1220,8 @@ bool checkAnswer(const RoundEntry& e, int optIdx) {
       return optIdx == upperLowerBank[e.idx].correctIdx;
     case QType::SKIP_COUNT:
       return skipBank[e.idx].options[optIdx] == skipBank[e.idx].correct;
+    case QType::MULTIPLY:
+      return multiplyBank[e.idx].options[optIdx] == multiplyBank[e.idx].correct;
   }
   return false;
 }
@@ -1265,11 +1350,6 @@ void handleTap(int16_t sx, int16_t sy) {
         lockEnabled = !lockEnabled;
         saveSettings();
         needsRedraw = true;
-      } else if (tapInside(BTN_MATH_DIFF, sx, sy)) {
-        flashButton(BTN_MATH_DIFF);
-        mathDifficulty = !mathDifficulty;
-        saveSettings();
-        needsRedraw = true;
       } else if (tapInside(BTN_READ_DIFF, sx, sy)) {
         flashButton(BTN_READ_DIFF);
         readDifficulty = !readDifficulty;
@@ -1357,6 +1437,9 @@ void initBanks() {
 
   skipBankSize = sizeof(SKIP_DEFAULT) / sizeof(SKIP_DEFAULT[0]);
   memcpy(skipBank, SKIP_DEFAULT, skipBankSize * sizeof(SkipQ));
+
+  multiplyBankSize = sizeof(MULTIPLY_DEFAULT) / sizeof(MULTIPLY_DEFAULT[0]);
+  memcpy(multiplyBank, MULTIPLY_DEFAULT, multiplyBankSize * sizeof(MultiplyQ));
 }
 
 // Helper: insert correct answer at a random position among 3 slots.
