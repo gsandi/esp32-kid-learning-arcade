@@ -1086,6 +1086,99 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
     return card;
 }
 
+// ── Mountain background ───────────────────────────────────────────────────────
+// Drawn on a full-screen canvas (z-index 0) behind all screen content.
+// Sky in 3 horizontal bands → far mountains → near mountains → stars.
+// Safe content zone: Y 0–724. Mountains occupy Y 724–1024.
+static uint8_t* s_bg_buf = nullptr;
+
+static void draw_mountain_bg(lv_obj_t* scr) {
+    if (!s_bg_buf) {
+        s_bg_buf = (uint8_t*)heap_caps_malloc(600 * 1024 * 2, MALLOC_CAP_DEFAULT);
+        if (!s_bg_buf) { ESP_LOGW(TAG, "mountain bg: alloc failed"); return; }
+    }
+
+    lv_obj_t* canvas = lv_canvas_create(scr);
+    lv_canvas_set_buffer(canvas, s_bg_buf, 600, 1024, LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_pos(canvas, 0, 0);
+    lv_obj_set_size(canvas, 600, 1024);
+    lv_obj_remove_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(canvas, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+
+    // Sky — 3 bands simulating a vertical gradient
+    lv_draw_rect_dsc_t sky;
+    lv_draw_rect_dsc_init(&sky);
+    sky.bg_opa = LV_OPA_COVER;
+    sky.border_width = 0;
+    sky.radius = 0;
+    sky.shadow_width = 0;
+    const struct { lv_color_t c; int32_t y1; int32_t y2; } bands[] = {
+        { lv_color_hex(0x100224),   0, 299 },
+        { lv_color_hex(0x160830), 300, 549 },
+        { lv_color_hex(0x1F0A45), 550, 723 },
+    };
+    for (auto& b : bands) {
+        sky.bg_color = b.c;
+        lv_area_t a = {0, b.y1, 599, b.y2};
+        lv_draw_rect(&layer, &sky, &a);
+    }
+
+    // Triangle fill helper — fan-triangulates a polygon from its first point
+    lv_draw_triangle_dsc_t tri;
+    lv_draw_triangle_dsc_init(&tri);
+    tri.opa = LV_OPA_COVER;
+    tri.grad.dir = LV_GRAD_DIR_NONE;
+
+    // Far mountains (range A, lighter indigo)
+    tri.color = lv_color_hex(0x2A1660);
+    const lv_point_precise_t ma[] = {
+        {0,924},{0,860},{60,820},{110,780},{160,810},
+        {220,750},{290,790},{360,724},{430,790},{490,755},
+        {540,800},{600,840},{600,924}
+    };
+    for (int i = 1; i + 1 < 13; i++) {
+        tri.p[0] = ma[0]; tri.p[1] = ma[i]; tri.p[2] = ma[i+1];
+        lv_draw_triangle(&layer, &tri);
+    }
+
+    // Near mountains (range B, dark indigo — grounds into screen edge)
+    tri.color = lv_color_hex(0x1C0E42);
+    const lv_point_precise_t mb[] = {
+        {0,1024},{0,900},{80,870},{150,848},{200,870},
+        {270,840},{340,862},{410,852},{480,875},{540,860},
+        {600,895},{600,1024}
+    };
+    for (int i = 1; i + 1 < 12; i++) {
+        tri.p[0] = mb[0]; tri.p[1] = mb[i]; tri.p[2] = mb[i+1];
+        lv_draw_triangle(&layer, &tri);
+    }
+
+    // Stars — 18 fixed 4×4 dots in the sky zone (Y < 680)
+    lv_draw_rect_dsc_t dot;
+    lv_draw_rect_dsc_init(&dot);
+    dot.bg_color  = lv_color_hex(0xFFFFFF);
+    dot.bg_opa    = 140;
+    dot.radius    = LV_RADIUS_CIRCLE;
+    dot.border_width = 0;
+    dot.shadow_width = 0;
+    static const lv_point_precise_t stars[18] = {
+        {48,60},{112,38},{195,88},{280,22},{350,55},
+        {430,35},{510,78},{565,48},{90,145},{230,120},
+        {390,135},{520,110},{155,200},{310,180},{470,215},
+        {60,280},{410,260},{545,300}
+    };
+    for (auto& s : stars) {
+        lv_area_t sa = {s.x-2, s.y-2, s.x+2, s.y+2};
+        lv_draw_rect(&layer, &dot, &sa);
+    }
+
+    lv_canvas_finish_layer(canvas, &layer);
+    lv_obj_move_to_index(canvas, 0);
+}
+
 static void show_home(void) {
     lvgl_port_lock(0);
 
@@ -1097,8 +1190,9 @@ static void show_home(void) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    draw_mountain_bg(scr);
 
-    // Decorative orbs behind everything
+    // Decorative orbs (rendered above mountain canvas)
     lv_obj_t* orb1 = lv_obj_create(scr);
     lv_obj_set_size(orb1, 400, 400);
     lv_obj_set_pos(orb1, SCR_W - 180, -120);
@@ -1226,14 +1320,18 @@ static void launch_arcade(void) {
 
 static void launch_settings(void) {
     lvgl_port_lock(0);
-
     g_settings_wifi_lbl = NULL;
 
     lv_obj_t* scr = lv_obj_create(NULL);
-    style_screen(scr);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    draw_mountain_bg(scr);
 
+    // ── Header ────────────────────────────────────────────────────────────
     lv_obj_t* hdr = make_header(scr, 88);
-
     lv_obj_t* back_btn = lv_button_create(hdr);
     lv_obj_set_size(back_btn, 64, 56);
     lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 14, 0);
@@ -1242,72 +1340,105 @@ static void launch_settings(void) {
     lv_obj_set_style_radius(back_btn, 14, 0);
     lv_obj_set_style_border_width(back_btn, 0, 0);
     lv_obj_set_style_shadow_width(back_btn, 0, 0);
-    lv_obj_t* back_lbl2 = lv_label_create(back_btn);
-    lv_label_set_text(back_lbl2, "<");
-    lv_obj_set_style_text_font(back_lbl2, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(back_lbl2, lv_color_hex(C_CARD_TXT), 0);
-    lv_obj_center(back_lbl2);
+    lv_obj_t* back_lbl = lv_label_create(back_btn);
+    lv_label_set_text(back_lbl, "<");
+    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(back_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(back_lbl);
     lv_obj_add_event_cb(back_btn, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* hl = make_label(hdr, "Settings", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t* hl2 = make_label(hdr, "Settings", &lv_font_montserrat_32, C_GOLD);
-    lv_obj_align(hl2, LV_ALIGN_CENTER, 0, 0);
-
-    lv_obj_t* col = make_col(scr, SCR_W - 40, SCR_H - 88, 28);
+    // ── Scrollable content column (transparent so mountain bg shows through)
+    lv_obj_t* col = lv_obj_create(scr);
+    lv_obj_set_size(col, 552, SCR_H - 112);
     lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 100);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col, 0, 0);
+    lv_obj_set_style_pad_all(col, 0, 0);
+    lv_obj_set_style_pad_row(col, 16, 0);
+    lv_obj_set_layout(col, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
 
-    // ── WiFi row ──────────────────────────────────────────────────────────
-    lv_obj_t* wifi_row = lv_obj_create(col);
-    lv_obj_set_size(wifi_row, SCR_W - 48, 96);
-    lv_obj_set_style_bg_color(wifi_row, lv_color_hex(C_BTN), 0);
-    lv_obj_set_style_bg_opa(wifi_row, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(wifi_row, 18, 0);
-    lv_obj_set_style_border_width(wifi_row, 0, 0);
-    lv_obj_set_style_shadow_width(wifi_row, 0, 0);
-    lv_obj_set_style_pad_left(wifi_row, 20, 0);
-    lv_obj_set_style_pad_right(wifi_row, 20, 0);
-    lv_obj_clear_flag(wifi_row, LV_OBJ_FLAG_SCROLLABLE);
+    // Section separator helper
+    auto make_section = [&](const char* name) {
+        lv_obj_t* lbl = lv_label_create(col);
+        lv_label_set_text(lbl, name);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(C_SUBTEXT), 0);
+        lv_obj_set_width(lbl, 552);
+        lv_obj_t* rule = lv_obj_create(col);
+        lv_obj_set_size(rule, 552, 2);
+        lv_obj_set_style_bg_color(rule, lv_color_hex(C_BTN), 0);
+        lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(rule, 0, 0);
+        lv_obj_set_style_radius(rule, 1, 0);
+        lv_obj_set_style_pad_all(rule, 0, 0);
+        lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
+    };
 
-    // WiFi icon + label on left
-    lv_obj_t* wifi_icon = lv_label_create(wifi_row);
-    lv_label_set_text(wifi_icon, "W");
+    // Card helper
+    auto make_card = [&](int32_t h) -> lv_obj_t* {
+        lv_obj_t* c = lv_obj_create(col);
+        lv_obj_set_size(c, 552, h);
+        lv_obj_set_style_bg_color(c, lv_color_hex(C_BTN), 0);
+        lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(c, 20, 0);
+        lv_obj_set_style_border_width(c, 0, 0);
+        lv_obj_set_style_shadow_width(c, 16, 0);
+        lv_obj_set_style_shadow_color(c, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(c, 60, 0);
+        lv_obj_set_style_shadow_ofs_y(c, 6, 0);
+        lv_obj_set_style_pad_all(c, 0, 0);
+        lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+        return c;
+    };
+
+    // ── NETWORK ──────────────────────────────────────────────────────────
+    make_section("NETWORK");
+    lv_obj_t* wifi_card = make_card(120);
+    lv_obj_set_style_pad_left(wifi_card, 24, 0);
+    lv_obj_set_style_pad_right(wifi_card, 20, 0);
+
+    lv_obj_t* wifi_icon = lv_label_create(wifi_card);
+    lv_label_set_text(wifi_icon, "((o))");
     lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0x5BB8F5), 0);
     lv_obj_align(wifi_icon, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t* wifi_title = lv_label_create(wifi_row);
-    lv_label_set_text(wifi_title, "Wi-Fi");
-    lv_obj_set_style_text_font(wifi_title, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(wifi_title, lv_color_hex(C_CARD_TXT), 0);
-    lv_obj_align(wifi_title, LV_ALIGN_LEFT_MID, 36, -14);
+    char ssid_buf[64];
+    snprintf(ssid_buf, sizeof(ssid_buf), "%s", g_wifi_ssid[0] ? g_wifi_ssid : "No network saved");
+    lv_obj_t* ssid_lbl = lv_label_create(wifi_card);
+    lv_label_set_text(ssid_lbl, ssid_buf);
+    lv_obj_set_style_text_font(ssid_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(ssid_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_set_style_max_width(ssid_lbl, 300, 0);
+    lv_label_set_long_mode(ssid_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_align(ssid_lbl, LV_ALIGN_LEFT_MID, 80, -18);
 
-    // Status line — updates live via g_settings_wifi_lbl
-    char wifi_status_buf[96];
-    if (g_wifi_connected && g_wifi_ssid[0])
-        snprintf(wifi_status_buf, sizeof(wifi_status_buf), "Connected  \xE2\x80\x94  %s", g_wifi_ssid);
-    else if (g_wifi_ssid[0])
-        snprintf(wifi_status_buf, sizeof(wifi_status_buf), "Saved: %s", g_wifi_ssid);
-    else
-        snprintf(wifi_status_buf, sizeof(wifi_status_buf), "Not connected");
-
-    g_settings_wifi_lbl = lv_label_create(wifi_row);
-    lv_label_set_text(g_settings_wifi_lbl, wifi_status_buf);
+    char wifi_st[32];
+    snprintf(wifi_st, sizeof(wifi_st), "%s",
+             g_wifi_connected ? "Connected" : (g_wifi_ssid[0] ? "Not connected" : "Tap to set up"));
+    g_settings_wifi_lbl = lv_label_create(wifi_card);
+    lv_label_set_text(g_settings_wifi_lbl, wifi_st);
     lv_obj_set_style_text_font(g_settings_wifi_lbl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(g_settings_wifi_lbl,
         lv_color_hex(g_wifi_connected ? C_CORRECT : C_SUBTEXT), 0);
-    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 36, 14);
+    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 80, 18);
 
-    // Change button on right
-    lv_obj_t* chg_btn = lv_button_create(wifi_row);
-    lv_obj_set_size(chg_btn, 100, 52);
+    lv_obj_t* chg_btn = lv_button_create(wifi_card);
+    lv_obj_set_size(chg_btn, 130, 64);
     lv_obj_align(chg_btn, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x005FAD), 0);
     lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(chg_btn, 12, 0);
+    lv_obj_set_style_radius(chg_btn, 14, 0);
     lv_obj_set_style_border_width(chg_btn, 0, 0);
     lv_obj_set_style_shadow_width(chg_btn, 0, 0);
     lv_obj_t* chg_lbl = lv_label_create(chg_btn);
     lv_label_set_text(chg_lbl, g_wifi_connected ? "Change" : "Connect");
-    lv_obj_set_style_text_font(chg_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(chg_lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(chg_lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(chg_lbl);
     lv_obj_add_event_cb(chg_btn, [](lv_event_t*) {
@@ -1315,29 +1446,87 @@ static void launch_settings(void) {
         launch_wifi();
     }, LV_EVENT_CLICKED, NULL);
 
-    // ── Brightness ────────────────────────────────────────────────────────
-    lv_obj_t* br_lbl = make_label(col, "Brightness", &lv_font_montserrat_28, C_CARD_TXT);
-    lv_obj_set_style_text_align(br_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    // ── DISPLAY ──────────────────────────────────────────────────────────
+    make_section("DISPLAY");
+    lv_obj_t* br_card = make_card(220);
 
-    char br_buf[24];
+    lv_obj_t* br_title = lv_label_create(br_card);
+    lv_label_set_text(br_title, "Brightness");
+    lv_obj_set_style_text_font(br_title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(br_title, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_align(br_title, LV_ALIGN_TOP_MID, 0, 28);
+
+    char br_buf[16];
     snprintf(br_buf, sizeof(br_buf), "%d%%", (int)g_brightness);
-    lv_obj_t* br_val = make_label(col, br_buf, &lv_font_montserrat_48, C_STAR);
-    lv_obj_set_style_text_align(br_val, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t* br_val = lv_label_create(br_card);
+    lv_label_set_text(br_val, br_buf);
+    lv_obj_set_style_text_font(br_val, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(br_val, lv_color_hex(C_GOLD), 0);
+    lv_obj_align(br_val, LV_ALIGN_TOP_MID, 0, 72);
 
-    lv_obj_t* sld = lv_slider_create(col);
-    lv_obj_set_size(sld, SCR_W - 120, 40);
+    lv_obj_t* sld = lv_slider_create(br_card);
+    lv_obj_set_size(sld, 460, 48);
+    lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -24);
     lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
     lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(sld, lv_color_hex(C_BTN), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
+    lv_obj_set_style_radius(sld, 24, LV_PART_MAIN);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_GOLD), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_STAR), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(sld, 10, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(sld, 14, LV_PART_KNOB);
+    lv_obj_set_style_radius(sld, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(sld, 12, LV_PART_KNOB);
+    lv_obj_set_style_shadow_color(sld, lv_color_hex(0x000000), LV_PART_KNOB);
+    lv_obj_set_style_shadow_opa(sld, 80, LV_PART_KNOB);
     lv_obj_add_event_cb(sld, on_brightness_slider, LV_EVENT_VALUE_CHANGED, br_val);
 
-    char total[40];
-    snprintf(total, sizeof(total), "Total stars: %ld", (long)g_stars);
-    lv_obj_t* t_lbl = make_label(col, total, &lv_font_montserrat_28, C_SUBTEXT);
-    lv_obj_set_style_text_align(t_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t* dim_lbl = lv_label_create(br_card);
+    lv_label_set_text(dim_lbl, "o");
+    lv_obj_set_style_text_font(dim_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(dim_lbl, lv_color_hex(C_SUBTEXT), 0);
+    lv_obj_align(dim_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -28);
+
+    lv_obj_t* brt_lbl = lv_label_create(br_card);
+    lv_label_set_text(brt_lbl, "O");
+    lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(brt_lbl, lv_color_hex(C_SUBTEXT), 0);
+    lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -28);
+
+    // ── YOUR STARS ────────────────────────────────────────────────────────
+    make_section("YOUR STARS");
+    lv_obj_t* star_card = make_card(180);
+
+    lv_obj_t* star_title = lv_label_create(star_card);
+    lv_label_set_text(star_title, "Your Stars");
+    lv_obj_set_style_text_font(star_title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(star_title, lv_color_hex(C_GOLD), 0);
+    lv_obj_align(star_title, LV_ALIGN_TOP_LEFT, 28, 24);
+
+    int shown = (int)(g_stars < 10 ? g_stars : 10);
+    for (int i = 0; i < shown; i++) {
+        lv_obj_t* sg = lv_label_create(star_card);
+        lv_label_set_text(sg, "*");
+        lv_obj_set_style_text_font(sg, &lv_font_montserrat_32, 0);
+        lv_obj_set_style_text_color(sg, lv_color_hex(C_STAR), 0);
+        lv_obj_set_pos(sg, 28 + i * 36, 72);
+    }
+    if (g_stars > 10) {
+        char more_buf[24];
+        snprintf(more_buf, sizeof(more_buf), "+ %ld more", (long)(g_stars - 10));
+        lv_obj_t* more = lv_label_create(star_card);
+        lv_label_set_text(more, more_buf);
+        lv_obj_set_style_text_font(more, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(more, lv_color_hex(C_SUBTEXT), 0);
+        lv_obj_set_pos(more, 364, 76);
+    }
+
+    char total_buf[24];
+    snprintf(total_buf, sizeof(total_buf), "%ld", (long)g_stars);
+    lv_obj_t* total_lbl = lv_label_create(star_card);
+    lv_label_set_text(total_lbl, total_buf);
+    lv_obj_set_style_text_font(total_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(total_lbl, lv_color_hex(C_GOLD), 0);
+    lv_obj_align(total_lbl, LV_ALIGN_BOTTOM_MID, 0, -20);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
     lvgl_port_unlock();
