@@ -39,18 +39,30 @@
 #define QUESTIONS_PER_ROUND 5
 #define ADMIN_PIN           "0000"
 
-// ── Colors ────────────────────────────────────────────────────────────────────
-#define C_BG        0x0F0E17
-#define C_GOLD      0xFFD700
-#define C_MATH      0xE85D04
-#define C_READ      0x1B4FD8
-#define C_CORRECT   0x2DC653
-#define C_WRONG     0xFF6B35
-#define C_HEADER    0x16213E
-#define C_CARD_TXT  0xFFFFFF
-#define C_BTN       0x2A2A3E
-#define C_BTN_PRESS 0x3D3D5C
-#define C_STAR      0xFFD700
+// ── Colors — vibrant, kid-friendly, high-contrast ─────────────────────────────
+#define C_BG          0x1A0533   // deep purple background
+#define C_HEADER      0x2D1B69   // mid-purple header / nav bar
+#define C_MATH        0xFF6B35   // vivid orange (math card)
+#define C_MATH_DK     0xC74A1E   // pressed math
+#define C_READ        0x4ECDC4   // teal (reading card)
+#define C_READ_DK     0x35968F   // pressed reading
+#define C_CORRECT     0x06D6A0   // mint green
+#define C_CORRECT_DK  0x04A87D   // pressed correct
+#define C_WRONG       0xFFB347   // warm amber (soft, no red flash)
+#define C_WRONG_DK    0xD9933A   // pressed wrong
+#define C_GOLD        0xFFD166   // gold / stars
+#define C_BTN         0x3A2A7A   // default purple-blue button
+#define C_BTN_PRESS   0x55409E   // pressed button
+#define C_BTN_ALT     0x6A4FB5   // accent button (numpad helpers)
+#define C_DANGER      0xB5485E   // reset / destructive (muted rose, not harsh red)
+#define C_DANGER_DK   0x8F3849
+#define C_CARD_TXT    0xFFFFFF   // white text
+#define C_SUBTEXT     0xBBAADD   // soft lavender subtext
+#define C_STAR        0xFFD166   // star gold (alias)
+
+// Logical display size after sw_rotate + ROTATION_270 (portrait)
+#define SCR_W  600
+#define SCR_H  1024
 
 // ── Question bank structs ─────────────────────────────────────────────────────
 enum QType {
@@ -404,6 +416,8 @@ static void show_admin(void);
 static void style_screen(lv_obj_t* scr) {
     lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 }
 
@@ -416,6 +430,21 @@ static lv_obj_t* make_label(lv_obj_t* parent, const char* txt,
     return lbl;
 }
 
+// Transparent flex column — used instead of absolute x/y for centered stacks.
+static lv_obj_t* make_col(lv_obj_t* parent, int w, int h, int gap) {
+    lv_obj_t* c = lv_obj_create(parent);
+    lv_obj_set_size(c, w, h);
+    lv_obj_set_style_bg_opa(c, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(c, 0, 0);
+    lv_obj_set_style_pad_all(c, 0, 0);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(c, gap, 0);
+    return c;
+}
+
 static lv_obj_t* make_btn(lv_obj_t* parent, const char* txt,
                            int w, int h, uint32_t bg,
                            lv_event_cb_t cb, void* ud) {
@@ -423,30 +452,51 @@ static lv_obj_t* make_btn(lv_obj_t* parent, const char* txt,
     lv_obj_set_size(btn, w, h);
     lv_obj_set_style_bg_color(btn, lv_color_hex(bg), 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(btn, 20, 0);
+    lv_obj_set_style_radius(btn, 22, 0);
     lv_obj_set_style_border_width(btn, 0, 0);
-    lv_obj_set_style_shadow_width(btn, 8, 0);
-    lv_obj_set_style_shadow_opa(btn, 80, 0);
+    lv_obj_set_style_shadow_width(btn, 14, 0);
+    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(btn, 70, 0);
+    lv_obj_set_style_shadow_ofs_y(btn, 5, 0);
     lv_obj_t* lbl = lv_label_create(btn);
     lv_label_set_text(lbl, txt);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_center(lbl);
     if (cb) lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, ud);
     return btn;
 }
 
+// Purple header bar pinned to the top. Returns the bar for extra widgets.
+static lv_obj_t* make_header(lv_obj_t* scr, int h) {
+    lv_obj_t* hdr = lv_obj_create(scr);
+    lv_obj_set_size(hdr, SCR_W, h);
+    lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(C_HEADER), 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(hdr, 0, 0);
+    lv_obj_set_style_radius(hdr, 0, 0);
+    lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_set_style_shadow_width(hdr, 16, 0);
+    lv_obj_set_style_shadow_color(hdr, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(hdr, 60, 0);
+    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    return hdr;
+}
+
 // ── Ten-frame visual ─────────────────────────────────────────────────────────
 static void draw_ten_frame(lv_obj_t* parent, int filled) {
-    // 2 rows × 5 cols of 46×46 circles, 8px gap
-    const int CW = 46, CH = 46, GAP = 8;
+    const int CW = 56, CH = 56, GAP = 10;
     const int COLS = 5, ROWS = 2;
     const int total_w = COLS * CW + (COLS-1) * GAP;
     const int total_h = ROWS * CH + (ROWS-1) * GAP;
     lv_obj_t* frame = lv_obj_create(parent);
-    lv_obj_set_size(frame, total_w + 20, total_h + 20);
-    lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
+    lv_obj_set_size(frame, total_w + 28, total_h + 28);
+    lv_obj_set_style_bg_color(frame, lv_color_hex(C_HEADER), 0);
+    lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(frame, 18, 0);
     lv_obj_set_style_border_width(frame, 0, 0);
+    lv_obj_set_style_pad_all(frame, 14, 0);
     lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(frame);
     int cell = 0;
@@ -456,10 +506,12 @@ static void draw_ten_frame(lv_obj_t* parent, int filled) {
             lv_obj_set_size(dot, CW, CH);
             lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
             lv_obj_set_style_border_width(dot, 2, 0);
-            lv_obj_set_style_border_color(dot, lv_color_hex(0xAAAAAA), 0);
+            lv_obj_set_style_border_color(dot, lv_color_hex(C_SUBTEXT), 0);
             bool f = (cell < filled);
-            lv_obj_set_style_bg_color(dot, lv_color_hex(f ? 0xFF8C00 : 0x2A2A3E), 0);
-            lv_obj_set_pos(dot, 10 + c*(CW+GAP), 10 + r*(CH+GAP));
+            lv_obj_set_style_bg_color(dot,
+                lv_color_hex(f ? C_GOLD : C_BTN), 0);
+            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+            lv_obj_set_pos(dot, c*(CW+GAP), r*(CH+GAP));
             cell++;
         }
     }
@@ -468,25 +520,32 @@ static void draw_ten_frame(lv_obj_t* parent, int filled) {
 // ── Dot visual (count questions) ──────────────────────────────────────────────
 static void draw_dots(lv_obj_t* parent, int count) {
     if (count <= 0 || count > 12) return;
-    const int D = 52, GAP = 10;
+    const int D = 64, GAP = 14;
     int cols = (count <= 4) ? count : (count <= 8) ? 4 : 5;
     int rows = (count + cols - 1) / cols;
     int total_w = cols * D + (cols-1) * GAP;
+    int total_h = rows * D + (rows-1) * GAP;
     lv_obj_t* box = lv_obj_create(parent);
-    lv_obj_set_size(box, total_w + 20, rows * D + (rows-1) * GAP + 20);
-    lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+    lv_obj_set_size(box, total_w + 28, total_h + 28);
+    lv_obj_set_style_bg_color(box, lv_color_hex(C_HEADER), 0);
+    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(box, 18, 0);
     lv_obj_set_style_border_width(box, 0, 0);
+    lv_obj_set_style_pad_all(box, 14, 0);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(box);
-    static const uint32_t COLORS[] = {0xFF5722,0xE91E63,0x9C27B0,0x2196F3,0x4CAF50,0xFF9800};
+    static const uint32_t COLORS[] = {
+        0xFF6B35, 0xFFD166, 0x06D6A0, 0x4ECDC4, 0xEF476F, 0xA66DD4
+    };
     for (int i = 0; i < count; i++) {
         lv_obj_t* d = lv_obj_create(box);
         lv_obj_set_size(d, D, D);
         lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_border_width(d, 0, 0);
         lv_obj_set_style_bg_color(d, lv_color_hex(COLORS[i % 6]), 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
         int col = i % cols, row = i / cols;
-        lv_obj_set_pos(d, 10 + col*(D+GAP), 10 + row*(D+GAP));
+        lv_obj_set_pos(d, col*(D+GAP), row*(D+GAP));
     }
 }
 
@@ -509,71 +568,71 @@ static void on_launcher_longpress(lv_event_t* e) {
     show_pin();
 }
 
+// Build one big tappable game card with title + subtitle, vertically centered.
+static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
+                                const char* subtitle, uint32_t bg,
+                                lv_event_cb_t cb) {
+    lv_obj_t* card = lv_obj_create(parent);
+    lv_obj_set_size(card, SCR_W - 60, 360);
+    lv_obj_set_style_bg_color(card, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(card, 32, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+    lv_obj_set_style_shadow_width(card, 28, 0);
+    lv_obj_set_style_shadow_color(card, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(card, 90, 0);
+    lv_obj_set_style_shadow_ofs_y(card, 8, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(card, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(card, 18, 0);
+
+    lv_obj_t* t = make_label(card, title, &lv_font_montserrat_48, C_CARD_TXT);
+    lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_t* s = make_label(card, subtitle, &lv_font_montserrat_24, C_CARD_TXT);
+    lv_obj_set_style_text_align(s, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_opa(s, LV_OPA_80, 0);
+    return card;
+}
+
 static void show_launcher(void) {
     lvgl_port_lock(0);
 
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
-    // Header bar
-    lv_obj_t* hdr = lv_obj_create(scr);
-    lv_obj_set_size(hdr, 600, 90);
-    lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(C_HEADER), 0);
-    lv_obj_set_style_border_width(hdr, 0, 0);
-    lv_obj_set_style_radius(hdr, 0, 0);
-    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    // Header — long-press anywhere on it for admin PIN.
+    lv_obj_t* hdr = make_header(scr, 110);
+    lv_obj_add_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(hdr, on_launcher_longpress, LV_EVENT_LONG_PRESSED, NULL);
 
-    lv_obj_t* title = make_label(hdr, "Kid Arcade", &lv_font_montserrat_32, C_GOLD);
-    lv_obj_set_pos(title, 20, 10);
+    lv_obj_t* title = make_label(hdr, "Kid Arcade",
+                                 &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 28, -18);
 
     char star_buf[32];
-    snprintf(star_buf, sizeof(star_buf), "* %ld stars", (long)g_stars);
-    lv_obj_t* star_lbl = make_label(hdr, star_buf, &lv_font_montserrat_24, C_STAR);
-    lv_obj_set_pos(star_lbl, 20, 52);
+    snprintf(star_buf, sizeof(star_buf), "* %ld", (long)g_stars);
+    lv_obj_t* star_lbl = make_label(hdr, star_buf,
+                                    &lv_font_montserrat_28, C_STAR);
+    lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 28, 22);
 
-    // Long-press on header → admin
-    lv_obj_add_event_cb(hdr, on_launcher_longpress, LV_EVENT_LONG_PRESSED, NULL);
-    lv_obj_add_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* tap_hint = make_label(hdr, "Pick a game",
+                                    &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_align(tap_hint, LV_ALIGN_RIGHT_MID, -28, 0);
 
-    // App cards
-    const int CARD_W = 540, CARD_H = 390, CARD_X = 30;
+    // Two big game cards stacked in a flex column below the header.
+    lv_obj_t* col = make_col(scr, SCR_W, SCR_H - 110, 36);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 110);
 
-    // Math card
-    lv_obj_t* math_card = lv_obj_create(scr);
-    lv_obj_set_size(math_card, CARD_W, CARD_H);
-    lv_obj_set_pos(math_card, CARD_X, 115);
-    lv_obj_set_style_bg_color(math_card, lv_color_hex(C_MATH), 0);
-    lv_obj_set_style_radius(math_card, 28, 0);
-    lv_obj_set_style_border_width(math_card, 0, 0);
-    lv_obj_set_style_shadow_width(math_card, 20, 0);
-    lv_obj_set_style_shadow_opa(math_card, 100, 0);
-    lv_obj_remove_flag(math_card, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(math_card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(math_card, on_math_tap, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t* ml = make_label(math_card, "MATH", &lv_font_montserrat_48, 0xFFFFFF);
-    lv_obj_align(ml, LV_ALIGN_TOP_MID, 0, 50);
-    lv_obj_t* ms = make_label(math_card, "Count  Add  Skip  Multiply", &lv_font_montserrat_24, 0xFFEEDD);
-    lv_obj_align(ms, LV_ALIGN_BOTTOM_MID, 0, -50);
-
-    // Reading card
-    lv_obj_t* read_card = lv_obj_create(scr);
-    lv_obj_set_size(read_card, CARD_W, CARD_H);
-    lv_obj_set_pos(read_card, CARD_X, 525);
-    lv_obj_set_style_bg_color(read_card, lv_color_hex(C_READ), 0);
-    lv_obj_set_style_radius(read_card, 28, 0);
-    lv_obj_set_style_border_width(read_card, 0, 0);
-    lv_obj_set_style_shadow_width(read_card, 20, 0);
-    lv_obj_set_style_shadow_opa(read_card, 100, 0);
-    lv_obj_remove_flag(read_card, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(read_card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(read_card, on_read_tap, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t* rl = make_label(read_card, "READING", &lv_font_montserrat_48, 0xFFFFFF);
-    lv_obj_align(rl, LV_ALIGN_TOP_MID, 0, 50);
-    lv_obj_t* rs = make_label(read_card, "Letters  Words  Rhymes", &lv_font_montserrat_24, 0xDDEEFF);
-    lv_obj_align(rs, LV_ALIGN_BOTTOM_MID, 0, -50);
+    make_game_card(col, "MATH", "Count   Add   Skip   Multiply",
+                   C_MATH, on_math_tap);
+    make_game_card(col, "READING", "Letters   Words   Rhymes",
+                   C_READ, on_read_tap);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 250, 0, true);
     lvgl_port_unlock();
@@ -601,99 +660,90 @@ static void show_question(void) {
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
-    // Header
-    lv_obj_t* hdr = lv_obj_create(scr);
-    lv_obj_set_size(hdr, 600, 75);
-    lv_obj_set_pos(hdr, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(C_HEADER), 0);
-    lv_obj_set_style_border_width(hdr, 0, 0);
-    lv_obj_set_style_radius(hdr, 0, 0);
-    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    // Header: back button (left), game name (center), progress (right).
+    lv_obj_t* hdr = make_header(scr, 88);
 
     lv_obj_t* back_btn = lv_button_create(hdr);
-    lv_obj_set_size(back_btn, 70, 50);
-    lv_obj_set_pos(back_btn, 8, 12);
-    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x333355), 0);
-    lv_obj_set_style_radius(back_btn, 12, 0);
+    lv_obj_set_size(back_btn, 64, 56);
+    lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN_PRESS),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back_btn, 14, 0);
     lv_obj_set_style_border_width(back_btn, 0, 0);
+    lv_obj_set_style_shadow_width(back_btn, 0, 0);
     lv_obj_t* back_lbl = lv_label_create(back_btn);
-    lv_label_set_text(back_lbl, "< ");
-    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_24, 0);
+    lv_label_set_text(back_lbl, "<");
+    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(back_lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_center(back_lbl);
     lv_obj_add_event_cb(back_btn, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
 
-    char hdr_txt[40];
-    snprintf(hdr_txt, sizeof(hdr_txt), "%s", game_name);
-    lv_obj_t* hl = make_label(hdr, hdr_txt, &lv_font_montserrat_28, game_col);
-    lv_obj_align(hl, LV_ALIGN_LEFT_MID, 95, 0);
+    lv_obj_t* hl = make_label(hdr, game_name,
+                              &lv_font_montserrat_32, game_col);
+    lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
 
     char prog[20];
-    snprintf(prog, sizeof(prog), "Q %d / %d", g_q_idx+1, QUESTIONS_PER_ROUND);
-    lv_obj_t* pl = make_label(hdr, prog, &lv_font_montserrat_24, 0xAAAAAA);
-    lv_obj_align(pl, LV_ALIGN_RIGHT_MID, -15, 0);
+    snprintf(prog, sizeof(prog), "Q %d/%d", g_q_idx+1, QUESTIONS_PER_ROUND);
+    lv_obj_t* pl = make_label(hdr, prog, &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_align(pl, LV_ALIGN_RIGHT_MID, -18, 0);
 
-    // Question prompt
-    lv_obj_t* q_lbl = lv_label_create(scr);
+    // ── Middle content region (between header and answer stack) ──────────────
+    const int BTN_H = 110, BTN_GAP = 16, BTN_MARGIN = 30;
+    const int STACK_H = 3 * BTN_H + 2 * BTN_GAP;            // 362
+    const int STACK_TOP = SCR_H - STACK_H - 24;             // y of first button
+    const int MID_TOP = 88 + 16;
+    const int MID_H = STACK_TOP - MID_TOP - 16;
+
+    lv_obj_t* mid = make_col(scr, SCR_W - 40, MID_H, 24);
+    lv_obj_align(mid, LV_ALIGN_TOP_MID, 0, MID_TOP);
+
+    lv_obj_t* q_lbl = lv_label_create(mid);
     lv_label_set_text(q_lbl, g_qd.prompt);
-    lv_obj_set_style_text_font(q_lbl, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(q_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(q_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(q_lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_set_style_text_align(q_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(q_lbl, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(q_lbl, 560);
-    lv_obj_set_pos(q_lbl, 20, 90);
+    lv_obj_set_width(q_lbl, SCR_W - 60);
 
-    // Extra text (sequence, word display)
     if (g_qd.extra[0]) {
-        lv_obj_t* ex = lv_label_create(scr);
+        lv_obj_t* ex = lv_label_create(mid);
         lv_label_set_text(ex, g_qd.extra);
-        lv_obj_set_style_text_font(ex, &lv_font_montserrat_32, 0);
+        lv_obj_set_style_text_font(ex, &lv_font_montserrat_48, 0);
         lv_obj_set_style_text_color(ex, lv_color_hex(C_GOLD), 0);
         lv_obj_set_style_text_align(ex, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_width(ex, 560);
-        lv_obj_set_pos(ex, 20, 165);
+        lv_label_set_long_mode(ex, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(ex, SCR_W - 60);
     }
 
-    // Visual (dots or ten-frame)
     if (g_qd.vis_type == 1) {
-        // Create a container for dots centered in the middle area
-        lv_obj_t* vis_cont = lv_obj_create(scr);
-        lv_obj_set_size(vis_cont, 560, 220);
-        lv_obj_set_pos(vis_cont, 20, 160);
-        lv_obj_set_style_bg_opa(vis_cont, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(vis_cont, 0, 0);
-        lv_obj_remove_flag(vis_cont, LV_OBJ_FLAG_SCROLLABLE);
-        draw_dots(vis_cont, g_qd.vis_count);
+        draw_dots(mid, g_qd.vis_count);
     } else if (g_qd.vis_type == 2) {
-        lv_obj_t* vis_cont = lv_obj_create(scr);
-        lv_obj_set_size(vis_cont, 560, 150);
-        lv_obj_set_pos(vis_cont, 20, 170);
-        lv_obj_set_style_bg_opa(vis_cont, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(vis_cont, 0, 0);
-        lv_obj_remove_flag(vis_cont, LV_OBJ_FLAG_SCROLLABLE);
-        draw_ten_frame(vis_cont, g_qd.vis_count);
+        draw_ten_frame(mid, g_qd.vis_count);
     }
 
-    // Answer buttons — 3 stacked vertically at bottom
-    const int BTN_W = 540, BTN_H = 110, BTN_X = 30, GAP = 14;
-    const int BTNS_TOP = 1024 - 3*(BTN_H+GAP) - 20;
-    static const uint32_t BTN_COLS[3] = {0x1B4A6B, 0x1B6B3A, 0x5C1B6B};
-
+    // ── Answer buttons: 3 full-width stacked at the bottom ───────────────────
+    static const uint32_t BTN_COLS[3] = { 0x3A2A7A, 0x4A2F8C, 0x5A3A9E };
     for (int i = 0; i < 3; i++) {
         lv_obj_t* btn = lv_button_create(scr);
-        lv_obj_set_size(btn, BTN_W, BTN_H);
-        lv_obj_set_pos(btn, BTN_X, BTNS_TOP + i*(BTN_H+GAP));
+        lv_obj_set_size(btn, SCR_W - 2*BTN_MARGIN, BTN_H);
+        lv_obj_set_pos(btn, BTN_MARGIN, STACK_TOP + i*(BTN_H+BTN_GAP));
         lv_obj_set_style_bg_color(btn, lv_color_hex(BTN_COLS[i]), 0);
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x444466), LV_STATE_PRESSED);
-        lv_obj_set_style_radius(btn, 18, 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(C_BTN_PRESS),
+                                  LV_STATE_PRESSED);
+        lv_obj_set_style_radius(btn, 22, 0);
         lv_obj_set_style_border_width(btn, 0, 0);
-        lv_obj_set_style_shadow_width(btn, 10, 0);
-        lv_obj_set_style_shadow_opa(btn, 80, 0);
+        lv_obj_set_style_shadow_width(btn, 14, 0);
+        lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(btn, 70, 0);
+        lv_obj_set_style_shadow_ofs_y(btn, 5, 0);
         lv_obj_t* lbl = lv_label_create(btn);
         lv_label_set_text(lbl, g_qd.opts[i]);
         lv_obj_set_style_text_font(lbl, &lv_font_montserrat_32, 0);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(C_CARD_TXT), 0);
         lv_obj_center(lbl);
-        lv_obj_add_event_cb(btn, on_answer, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        lv_obj_add_event_cb(btn, on_answer, LV_EVENT_CLICKED,
+                            (void*)(intptr_t)i);
     }
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
@@ -703,7 +753,6 @@ static void show_question(void) {
 // ── SCREEN: FEEDBACK ─────────────────────────────────────────────────────────
 static void on_next_question(lv_event_t* e) {
     if (!g_last_correct) {
-        // retry same question
         show_question();
         return;
     }
@@ -719,30 +768,48 @@ static void on_next_question(lv_event_t* e) {
 static void show_feedback(void) {
     lvgl_port_lock(0);
 
+    // Full-screen color wash: green = correct, warm amber = wrong (soft).
+    uint32_t wash    = g_last_correct ? C_CORRECT : C_WRONG;
+    uint32_t btn_clr = g_last_correct ? C_CORRECT_DK : C_WRONG_DK;
+
     lv_obj_t* scr = lv_obj_create(NULL);
-    uint32_t bg = g_last_correct ? 0x0A3320 : 0x2A1500;
-    lv_obj_set_style_bg_color(scr, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(wash), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* icon = make_label(scr,
+    lv_obj_t* col = make_col(scr, SCR_W - 60, SCR_H, 30);
+    lv_obj_center(col);
+
+    lv_obj_t* big = make_label(col,
         g_last_correct ? "Correct!" : "Try Again!",
-        &lv_font_montserrat_48,
-        g_last_correct ? C_CORRECT : C_WRONG);
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, -120);
+        &lv_font_montserrat_48, 0xFFFFFF);
+    lv_obj_set_style_text_align(big, LV_TEXT_ALIGN_CENTER, 0);
 
     if (g_last_correct) {
-        char msg[40];
-        snprintf(msg, sizeof(msg), "You earned a star!  Total: %ld", (long)g_stars);
-        lv_obj_t* sub = make_label(scr, msg, &lv_font_montserrat_24, C_STAR);
-        lv_obj_align(sub, LV_ALIGN_CENTER, 0, -50);
+        char msg[48];
+        snprintf(msg, sizeof(msg), "You earned a star!   * %ld",
+                 (long)g_stars);
+        lv_obj_t* sub = make_label(col, msg,
+                                   &lv_font_montserrat_28, 0xFFFFFF);
+        lv_obj_set_style_opa(sub, LV_OPA_90, 0);
+        lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
+    } else {
+        lv_obj_t* sub = make_label(col, "Give it another go!",
+                                   &lv_font_montserrat_28, 0xFFFFFF);
+        lv_obj_set_style_opa(sub, LV_OPA_90, 0);
+        lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
     }
 
-    const char* btn_txt = g_last_correct ? "Next" : "Try Again";
-    lv_obj_t* btn = make_btn(scr, btn_txt, 320, 110,
-        g_last_correct ? C_CORRECT : C_WRONG,
-        on_next_question, NULL);
-    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 100);
+    // Spacer so the button sits clearly below the text.
+    lv_obj_t* spacer = lv_obj_create(col);
+    lv_obj_set_size(spacer, 1, 30);
+    lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(spacer, 0, 0);
+
+    make_btn(col, g_last_correct ? "Next" : "Try Again",
+             360, 110, btn_clr, on_next_question, NULL);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, true);
     lvgl_port_unlock();
@@ -762,33 +829,40 @@ static void show_round_complete(void) {
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
-    lv_obj_t* ttl = make_label(scr, "Round Done!", &lv_font_montserrat_48, C_GOLD);
-    lv_obj_align(ttl, LV_ALIGN_CENTER, 0, -250);
+    lv_obj_t* col = make_col(scr, SCR_W - 60, SCR_H, 26);
+    lv_obj_center(col);
 
-    char earned[60];
-    snprintf(earned, sizeof(earned), "+%d stars this round", g_stars_round);
-    lv_obj_t* e_lbl = make_label(scr, earned, &lv_font_montserrat_32, C_CORRECT);
-    lv_obj_align(e_lbl, LV_ALIGN_CENTER, 0, -160);
+    make_label(col, "Round Done!", &lv_font_montserrat_48, C_GOLD);
+
+    // Visual star row for stars earned this round.
+    char stars_str[32] = "";
+    for (int i = 0; i < g_stars_round && i < 5; i++)
+        strncat(stars_str, "* ", sizeof(stars_str)-strlen(stars_str)-1);
+    if (!stars_str[0]) strncpy(stars_str, "-", sizeof(stars_str)-1);
+    lv_obj_t* star_row = make_label(col, stars_str,
+                                    &lv_font_montserrat_48, C_STAR);
+    lv_obj_set_style_text_align(star_row, LV_TEXT_ALIGN_CENTER, 0);
+
+    char earned[48];
+    snprintf(earned, sizeof(earned), "+%d this round", g_stars_round);
+    lv_obj_t* e_lbl = make_label(col, earned,
+                                 &lv_font_montserrat_32, C_CORRECT);
+    lv_obj_set_style_text_align(e_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     char total[40];
     snprintf(total, sizeof(total), "Total stars: %ld", (long)g_stars);
-    lv_obj_t* t_lbl = make_label(scr, total, &lv_font_montserrat_28, C_STAR);
-    lv_obj_align(t_lbl, LV_ALIGN_CENTER, 0, -90);
+    lv_obj_t* t_lbl = make_label(col, total,
+                                 &lv_font_montserrat_28, C_SUBTEXT);
+    lv_obj_set_style_text_align(t_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    // Star row
-    lv_obj_t* star_row = lv_label_create(scr);
-    char stars_str[32] = "";
-    for (int i = 0; i < g_stars_round && i < 5; i++) strncat(stars_str, "* ", sizeof(stars_str)-3);
-    lv_label_set_text(star_row, stars_str);
-    lv_obj_set_style_text_font(star_row, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(star_row, lv_color_hex(C_STAR), 0);
-    lv_obj_align(star_row, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t* spacer = lv_obj_create(col);
+    lv_obj_set_size(spacer, 1, 24);
+    lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(spacer, 0, 0);
 
-    lv_obj_t* again = make_btn(scr, "Play Again", 400, 110, C_MATH, on_play_again, NULL);
-    lv_obj_align(again, LV_ALIGN_CENTER, 0, 150);
-
-    lv_obj_t* home = make_btn(scr, "Home", 260, 90, 0x333355, on_home, NULL);
-    lv_obj_align(home, LV_ALIGN_CENTER, 0, 290);
+    make_btn(col, "Play Again", SCR_W - 80, 110, C_MATH,
+             on_play_again, NULL);
+    make_btn(col, "Home", SCR_W - 80, 90, C_BTN, on_home, NULL);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     lvgl_port_unlock();
@@ -799,16 +873,17 @@ static lv_obj_t* g_pin_display = NULL;
 
 static void update_pin_display(void) {
     if (!g_pin_display) return;
-    char masked[8] = "";
-    for (int i = 0; i < g_pin_len; i++) strncat(masked, "* ", sizeof(masked)-3);
-    lv_label_set_text(g_pin_display, masked[0] ? masked : "____");
+    char masked[24] = "";
+    for (int i = 0; i < g_pin_len; i++)
+        strncat(masked, "*  ", sizeof(masked)-strlen(masked)-1);
+    lv_label_set_text(g_pin_display, masked[0] ? masked : "_  _  _  _");
 }
 
 static void on_pin_digit(lv_event_t* e) {
     int d = (int)(intptr_t)lv_event_get_user_data(e);
-    if (d == -1) { // backspace
+    if (d == -1) {
         if (g_pin_len > 0) g_pin_buf[--g_pin_len] = '\0';
-    } else if (d == -2) { // cancel
+    } else if (d == -2) {
         show_launcher();
         return;
     } else {
@@ -822,7 +897,7 @@ static void on_pin_digit(lv_event_t* e) {
                 g_pin_len = 0;
                 g_pin_buf[0] = '\0';
                 if (g_pin_display)
-                    lv_label_set_text(g_pin_display, "Wrong PIN");
+                    lv_label_set_text(g_pin_display, "Wrong");
                 return;
             }
         }
@@ -837,28 +912,38 @@ static void show_pin(void) {
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
-    lv_obj_t* ttl = make_label(scr, "Admin PIN", &lv_font_montserrat_32, C_GOLD);
-    lv_obj_align(ttl, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_t* hdr = make_header(scr, 88);
+    lv_obj_t* ttl = make_label(hdr, "Enter PIN",
+                               &lv_font_montserrat_32, C_GOLD);
+    lv_obj_center(ttl);
 
     g_pin_display = lv_label_create(scr);
-    lv_label_set_text(g_pin_display, "____");
+    lv_label_set_text(g_pin_display, "_  _  _  _");
     lv_obj_set_style_text_font(g_pin_display, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(g_pin_display, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(g_pin_display, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_align(g_pin_display, LV_ALIGN_TOP_MID, 0, 140);
 
-    // 3×4 numpad: 1-9, ←, 0, Cancel
-    const int BW = 150, BH = 110, GAPX = 15, GAPY = 15;
-    const int START_X = (600 - 3*BW - 2*GAPX) / 2;
-    const int START_Y = 250;
-    int digits[12] = {1,2,3,4,5,6,7,8,9,-1,0,-2};
+    // 3×4 numpad centered with flex column of rows.
+    const int BW = 160, BH = 110, GAP = 16;
+    lv_obj_t* pad = lv_obj_create(scr);
+    int pad_w = 3*BW + 2*GAP;
+    int pad_h = 4*BH + 3*GAP;
+    lv_obj_set_size(pad, pad_w, pad_h);
+    lv_obj_set_style_bg_opa(pad, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(pad, 0, 0);
+    lv_obj_set_style_pad_all(pad, 0, 0);
+    lv_obj_remove_flag(pad, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(pad, LV_ALIGN_TOP_MID, 0, 260);
+
+    int digits[12]       = {1,2,3,4,5,6,7,8,9,-1,0,-2};
     const char* labels[12] = {"1","2","3","4","5","6","7","8","9","<","0","X"};
-
     for (int i = 0; i < 12; i++) {
         int col = i % 3, row = i / 3;
-        uint32_t col_clr = (i == 11) ? 0x662222 : (i == 9 ? 0x334455 : C_BTN);
-        lv_obj_t* btn = make_btn(scr, labels[i], BW, BH, col_clr,
-                                  on_pin_digit, (void*)(intptr_t)digits[i]);
-        lv_obj_set_pos(btn, START_X + col*(BW+GAPX), START_Y + row*(BH+GAPY));
+        uint32_t clr = (i == 11) ? C_DANGER
+                       : (i == 9 ? C_BTN_ALT : C_BTN);
+        lv_obj_t* btn = make_btn(pad, labels[i], BW, BH, clr,
+                                 on_pin_digit, (void*)(intptr_t)digits[i]);
+        lv_obj_set_pos(btn, col*(BW+GAP), row*(BH+GAP));
     }
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
@@ -884,22 +969,31 @@ static void show_admin(void) {
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
-    lv_obj_t* ttl = make_label(scr, "Admin", &lv_font_montserrat_32, C_GOLD);
-    lv_obj_align(ttl, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_t* hdr = make_header(scr, 88);
+    lv_obj_t* ttl = make_label(hdr, "Admin",
+                               &lv_font_montserrat_32, C_GOLD);
+    lv_obj_center(ttl);
+
+    lv_obj_t* col = make_col(scr, SCR_W - 60, SCR_H - 88, 26);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 88);
 
     char total[40];
     snprintf(total, sizeof(total), "Stars: %ld", (long)g_stars);
-    lv_obj_t* tl = make_label(scr, total, &lv_font_montserrat_28, C_STAR);
-    lv_obj_align(tl, LV_ALIGN_TOP_MID, 0, 140);
+    lv_obj_t* tl = make_label(col, total,
+                              &lv_font_montserrat_32, C_STAR);
+    lv_obj_set_style_text_align(tl, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_obj_t* b1 = make_btn(scr, "+50 Stars", 400, 110, C_CORRECT, on_add50, NULL);
-    lv_obj_align(b1, LV_ALIGN_CENTER, 0, -60);
+    lv_obj_t* spacer = lv_obj_create(col);
+    lv_obj_set_size(spacer, 1, 20);
+    lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(spacer, 0, 0);
 
-    lv_obj_t* b2 = make_btn(scr, "Reset Stars", 400, 110, 0x882222, on_reset_stars, NULL);
-    lv_obj_align(b2, LV_ALIGN_CENTER, 0, 80);
-
-    lv_obj_t* b3 = make_btn(scr, "Home", 280, 90, 0x333355, on_admin_home, NULL);
-    lv_obj_align(b3, LV_ALIGN_CENTER, 0, 220);
+    make_btn(col, "+50 Stars", SCR_W - 90, 110, C_CORRECT,
+             on_add50, NULL);
+    make_btn(col, "Reset Stars", SCR_W - 90, 110, C_DANGER,
+             on_reset_stars, NULL);
+    make_btn(col, "Home", SCR_W - 90, 90, C_BTN,
+             on_admin_home, NULL);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
     lvgl_port_unlock();
