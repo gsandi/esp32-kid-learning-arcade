@@ -469,7 +469,9 @@ static void prepare_question(void) {
 }
 
 // ── Forward declarations ──────────────────────────────────────────────────────
-static void show_launcher(void);
+static void show_home(void);
+static void launch_arcade(void);
+static void launch_settings(void);
 static void show_question(void);
 static void show_feedback(void);
 static void show_round_complete(void);
@@ -636,7 +638,36 @@ static void add_home_button(lv_obj_t* scr) {
     lv_obj_add_event_cb(hb, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
 }
 
-// ── SCREEN: LAUNCHER ─────────────────────────────────────────────────────────
+// ── SCREEN: HOME ─────────────────────────────────────────────────────────────
+static void on_launch_arcade(lv_event_t* e) { launch_arcade(); }
+static void on_launch_settings(lv_event_t* e) { launch_settings(); }
+
+static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
+                                const char* name, uint32_t bg,
+                                int x, int y, int w, int h,
+                                lv_event_cb_t cb) {
+    lv_obj_t* t = lv_obj_create(parent);
+    lv_obj_set_size(t, w, h);
+    lv_obj_set_pos(t, x, y);
+    lv_obj_set_style_bg_color(t, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(t, 28, 0);
+    lv_obj_set_style_border_width(t, 0, 0);
+    lv_obj_set_style_shadow_width(t, 24, 0);
+    lv_obj_set_style_shadow_color(t, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_shadow_opa(t, 100, 0);
+    lv_obj_set_style_shadow_ofs_y(t, 8, 0);
+    lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(t, cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* il = make_label(t, icon, &lv_font_montserrat_48, C_CARD_TXT);
+    lv_obj_align(il, LV_ALIGN_CENTER, 0, -24);
+    lv_obj_t* nl = make_label(t, name, &lv_font_montserrat_28, C_CARD_TXT);
+    lv_obj_align(nl, LV_ALIGN_CENTER, 0, 48);
+    return t;
+}
+
+// ── SCREEN: LAUNCHER (game + settings) ───────────────────────────────────────
 static void on_math_tap(lv_event_t* e) {
     g_game = 0;
     build_round();
@@ -701,72 +732,126 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
     return card;
 }
 
-static void show_launcher(void) {
+static void show_home(void) {
     lvgl_port_lock(0);
 
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
-    // Header — long-press anywhere on it for admin PIN.
-    lv_obj_t* hdr = make_header(scr, 110);
+    // Status bar: stars left, title center, long-press → admin PIN
+    lv_obj_t* hdr = make_header(scr, 100);
     lv_obj_add_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(hdr, on_launcher_longpress, LV_EVENT_LONG_PRESSED, NULL);
 
-    lv_obj_t* title = make_label(hdr, "Kid Arcade",
-                                 &lv_font_montserrat_32, C_GOLD);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 28, -18);
-
     char star_buf[32];
     snprintf(star_buf, sizeof(star_buf), "* %ld", (long)g_stars);
-    lv_obj_t* star_lbl = make_label(hdr, star_buf,
-                                    &lv_font_montserrat_28, C_STAR);
-    lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 28, 22);
+    lv_obj_t* star_lbl = make_label(hdr, star_buf, &lv_font_montserrat_24, C_STAR);
+    lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 24, 0);
 
-    lv_obj_t* tap_hint = make_label(hdr, "Pick a game  >  Settings",
-                                    &lv_font_montserrat_24, C_SUBTEXT);
-    lv_obj_align(tap_hint, LV_ALIGN_RIGHT_MID, -28, 0);
+    lv_obj_t* ttl = make_label(hdr, "Kid Arcade", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(ttl, LV_ALIGN_CENTER, 0, 0);
 
-    // Tileview below the header: tile 0 = games (home), tile 1 = settings.
-    lv_obj_t* tv = lv_tileview_create(scr);
-    lv_obj_set_size(tv, SCR_W, SCR_H - 110);
-    lv_obj_align(tv, LV_ALIGN_TOP_MID, 0, 110);
-    lv_obj_set_style_bg_opa(tv, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(tv, 0, 0);
-    lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
+    // App grid: 2 tiles side by side, centered below the status bar
+    const int TILE_W = 250, TILE_H = 290, TILE_GAP = 30;
+    const int GRID_W  = TILE_W * 2 + TILE_GAP;
+    const int GRID_Y  = 100 + 80;
 
-    // Tile (0,0) = games (home), tile (1,0) = settings. Horizontal swipe.
-    lv_obj_t* tile_home = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
-    lv_obj_t* tile_set  = lv_tileview_add_tile(tv, 1, 0, LV_DIR_LEFT);
-    lv_obj_set_style_bg_opa(tile_home, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_opa(tile_set,  LV_OPA_TRANSP, 0);
+    lv_obj_t* grid = lv_obj_create(scr);
+    lv_obj_set_size(grid, GRID_W, TILE_H);
+    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, GRID_Y);
+    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(grid, 0, 0);
+    lv_obj_set_style_pad_all(grid, 0, 0);
+    lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* col = make_col(tile_home, SCR_W, SCR_H - 110, 36);
-    lv_obj_center(col);
+    make_app_tile(grid, "A", "Arcade",
+                  C_MATH, 0, 0, TILE_W, TILE_H, on_launch_arcade);
+    make_app_tile(grid, "S", "Settings",
+                  C_BTN_ALT, TILE_W + TILE_GAP, 0, TILE_W, TILE_H, on_launch_settings);
+
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 250, 0, true);
+    lvgl_port_unlock();
+}
+
+static void launch_arcade(void) {
+    lvgl_port_lock(0);
+
+    lv_obj_t* scr = lv_obj_create(NULL);
+    style_screen(scr);
+
+    lv_obj_t* hdr = make_header(scr, 88);
+
+    lv_obj_t* back_btn = lv_button_create(hdr);
+    lv_obj_set_size(back_btn, 64, 56);
+    lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back_btn, 14, 0);
+    lv_obj_set_style_border_width(back_btn, 0, 0);
+    lv_obj_set_style_shadow_width(back_btn, 0, 0);
+    lv_obj_t* back_lbl = lv_label_create(back_btn);
+    lv_label_set_text(back_lbl, "<");
+    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(back_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(back_lbl);
+    lv_obj_add_event_cb(back_btn, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* hl = make_label(hdr, "Choose a Game",
+                              &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t* col = make_col(scr, SCR_W, SCR_H - 88, 36);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 88);
 
     make_game_card(col, "MATH", "Count   Add   Skip   Multiply",
                    C_MATH, on_math_tap);
     make_game_card(col, "READING", "Letters   Words   Rhymes",
                    C_READ, on_read_tap);
 
-    // ── Settings tile: brightness slider ─────────────────────────────────────
-    lv_obj_t* set_col = make_col(tile_set, SCR_W - 40, SCR_H - 110, 34);
-    lv_obj_center(set_col);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lvgl_port_unlock();
+}
 
-    lv_obj_t* set_ttl = make_label(set_col, "Settings",
-                                   &lv_font_montserrat_48, C_GOLD);
-    lv_obj_set_style_text_align(set_ttl, LV_TEXT_ALIGN_CENTER, 0);
+static void launch_settings(void) {
+    lvgl_port_lock(0);
 
-    lv_obj_t* br_lbl = make_label(set_col, "Brightness",
+    lv_obj_t* scr = lv_obj_create(NULL);
+    style_screen(scr);
+
+    lv_obj_t* hdr = make_header(scr, 88);
+
+    lv_obj_t* back_btn = lv_button_create(hdr);
+    lv_obj_set_size(back_btn, 64, 56);
+    lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(back_btn, 14, 0);
+    lv_obj_set_style_border_width(back_btn, 0, 0);
+    lv_obj_set_style_shadow_width(back_btn, 0, 0);
+    lv_obj_t* back_lbl2 = lv_label_create(back_btn);
+    lv_label_set_text(back_lbl2, "<");
+    lv_obj_set_style_text_font(back_lbl2, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(back_lbl2, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(back_lbl2);
+    lv_obj_add_event_cb(back_btn, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* hl2 = make_label(hdr, "Settings", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(hl2, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t* col = make_col(scr, SCR_W - 40, SCR_H - 88, 34);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 88);
+
+    lv_obj_t* br_lbl = make_label(col, "Brightness",
                                   &lv_font_montserrat_32, C_CARD_TXT);
     lv_obj_set_style_text_align(br_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     char br_buf[24];
     snprintf(br_buf, sizeof(br_buf), "%d%%", (int)g_brightness);
-    lv_obj_t* br_val = make_label(set_col, br_buf,
+    lv_obj_t* br_val = make_label(col, br_buf,
                                   &lv_font_montserrat_48, C_STAR);
     lv_obj_set_style_text_align(br_val, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_obj_t* sld = lv_slider_create(set_col);
+    lv_obj_t* sld = lv_slider_create(col);
     lv_obj_set_size(sld, SCR_W - 120, 40);
     lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
     lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
@@ -774,14 +859,14 @@ static void show_launcher(void) {
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_GOLD), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_STAR), LV_PART_KNOB);
     lv_obj_set_style_pad_all(sld, 10, LV_PART_KNOB);
-    lv_obj_add_event_cb(sld, on_brightness_slider,
-                        LV_EVENT_VALUE_CHANGED, br_val);
+    lv_obj_add_event_cb(sld, on_brightness_slider, LV_EVENT_VALUE_CHANGED, br_val);
 
-    lv_obj_t* sw_hint = make_label(set_col, "<  Swipe back to games",
-                                   &lv_font_montserrat_24, C_SUBTEXT);
-    lv_obj_set_style_text_align(sw_hint, LV_TEXT_ALIGN_CENTER, 0);
+    char total[40];
+    snprintf(total, sizeof(total), "Total stars: %ld", (long)g_stars);
+    lv_obj_t* t_lbl = make_label(col, total, &lv_font_montserrat_28, C_SUBTEXT);
+    lv_obj_set_style_text_align(t_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
     lvgl_port_unlock();
 }
 
@@ -796,7 +881,7 @@ static void on_answer(lv_event_t* e) {
     }
     show_feedback();
 }
-static void on_back_to_launcher(lv_event_t* e) { show_launcher(); }
+static void on_back_to_launcher(lv_event_t* e) { show_home(); }
 
 static void show_question(void) {
     const char* game_name = (g_game == 0) ? "Math" : "Reading";
@@ -972,7 +1057,7 @@ static void on_play_again(lv_event_t* e) {
     prepare_question();
     show_question();
 }
-static void on_home(lv_event_t* e) { show_launcher(); }
+static void on_home(lv_event_t* e) { show_home(); }
 
 static void show_round_complete(void) {
     lvgl_port_lock(0);
@@ -1035,7 +1120,7 @@ static void on_pin_digit(lv_event_t* e) {
     if (d == -1) {
         if (g_pin_len > 0) g_pin_buf[--g_pin_len] = '\0';
     } else if (d == -2) {
-        show_launcher();
+        show_home();
         return;
     } else {
         if (g_pin_len < 4) g_pin_buf[g_pin_len++] = '0' + d;
@@ -1105,14 +1190,14 @@ static void show_pin(void) {
 static void on_reset_stars(lv_event_t* e) {
     g_stars = 0;
     nvs_save_stars();
-    show_launcher();
+    show_home();
 }
 static void on_add50(lv_event_t* e) {
     g_stars += 50;
     nvs_save_stars();
-    show_launcher();
+    show_home();
 }
-static void on_admin_home(lv_event_t* e) { show_launcher(); }
+static void on_admin_home(lv_event_t* e) { show_home(); }
 
 static void show_admin(void) {
     lvgl_port_lock(0);
@@ -1288,5 +1373,5 @@ extern "C" void app_main(void) {
     set_brightness(g_brightness);
     ESP_LOGI(TAG, "Display up — launching game");
 
-    show_launcher();
+    show_home();
 }
