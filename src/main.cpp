@@ -13,6 +13,15 @@
 #include "esp_random.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_sntp.h"
+#include "esp_http_client.h"
+#include <time.h>
+#include <sys/time.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_mipi_dsi.h"
@@ -97,127 +106,269 @@ struct MultiplyQ{ int left; int right; int opts[3]; int correct; };
 
 // ── Question banks ────────────────────────────────────────────────────────────
 static const CountQ COUNT_DEF[] = {
-    {"How many apples?",    3,  {2,3,4},  3},
-    {"How many apples?",    6,  {5,6,7},  6},
-    {"How many balls?",     2,  {1,2,3},  2},
-    {"How many balls?",     5,  {4,5,6},  5},
-    {"How many balls?",     9,  {7,8,9},  9},
-    {"How many stars?",     4,  {3,4,5},  4},
-    {"How many stars?",     7,  {6,7,8},  7},
-    {"How many flowers?",   1,  {1,2,3},  1},
-    {"How many flowers?",   8,  {6,8,9},  8},
-    {"How many moons?",     3,  {2,3,4},  3},
-    {"How many hearts?",    4,  {3,4,5},  4},
-    {"How many hearts?",    9,  {7,8,9},  9},
-    {"How many triangles?", 2,  {2,3,4},  2},
-    {"How many triangles?", 5,  {4,5,6},  5},
-    {"How many squares?",   3,  {2,3,4},  3},
-    {"How many squares?",   6,  {5,6,7},  6},
+    // --- easy: 1-9 (subitizing -> count) ---
+    {"How many apples?",    3,  {2,3,4},    3},
+    {"How many apples?",    6,  {5,6,7},    6},
+    {"How many balls?",     2,  {1,2,3},    2},
+    {"How many balls?",     5,  {4,5,6},    5},
+    {"How many balls?",     9,  {7,8,9},    9},
+    {"How many stars?",     4,  {3,4,5},    4},
+    {"How many stars?",     7,  {6,7,8},    7},
+    {"How many flowers?",   1,  {1,2,3},    1},
+    {"How many flowers?",   8,  {6,8,9},    8},
+    {"How many moons?",     3,  {2,3,4},    3},
+    {"How many hearts?",    4,  {3,4,5},    4},
+    {"How many hearts?",    9,  {7,8,9},    9},
+    {"How many triangles?", 2,  {2,3,4},    2},
+    {"How many triangles?", 5,  {4,5,6},    5},
+    {"How many squares?",   3,  {2,3,4},    3},
+    {"How many squares?",   6,  {5,6,7},    6},
+    {"How many circles?",   5,  {3,4,5},    5},
+    {"How many circles?",   8,  {7,8,9},    8},
+    {"How many moons?",     7,  {5,7,9},    7},
+    {"How many stars?",     6,  {4,6,8},    6},
+    // --- medium: 10-12 ---
+    {"How many apples?",   10,  {9,10,11}, 10},
+    {"How many balls?",    11,  {10,11,12},11},
+    {"How many stars?",    12,  {11,12,13},12},
+    {"How many flowers?",  10,  {8,10,12}, 10},
+    {"How many hearts?",   12,  {10,12,14},12},
+    {"How many squares?",  11,  {9,11,13}, 11},
+    // --- hard: teens 13-20 (needs draw_dots cap >= 20) ---
+    {"How many apples?",   13,  {12,13,14},13},
+    {"How many balls?",    14,  {13,14,15},14},
+    {"How many stars?",    15,  {14,15,16},15},
+    {"How many moons?",    16,  {15,16,17},16},
+    {"How many hearts?",   17,  {16,17,18},17},
+    {"How many flowers?",  18,  {17,18,19},18},
+    {"How many triangles?",19,  {18,19,20},19},
+    {"How many squares?",  20,  {18,20,22},20},
+    {"How many circles?",  13,  {11,13,15},13},
+    {"How many stars?",    16,  {14,16,18},16},
+    {"How many balls?",    18,  {16,18,20},18},
+    {"How many apples?",   15,  {13,15,17},15},
+    {"How many hearts?",   20,  {19,20,21},20},
+    {"How many moons?",    14,  {12,14,16},14},
 };
 static const int COUNT_N = sizeof(COUNT_DEF)/sizeof(COUNT_DEF[0]);
 
 static const MissNumQ MISSNUM_DEF[] = {
-    {{ 3, 4,-1, 6},{2, 5, 7}, 5},
-    {{ 7, 8, 9,-1},{7,10,11},10},
-    {{-1, 2, 3, 4},{1, 5, 0}, 1},
-    {{ 5,-1, 7, 8},{4, 6, 9}, 6},
-    {{ 1, 2,-1, 4},{3, 5, 6}, 3},
-    {{ 6, 7, 8,-1},{9,10, 5}, 9},
-    {{-1, 9,10,11},{7, 8,12}, 8},
-    {{12,13,-1,15},{11,14,16},14},
-    {{17,18,19,-1},{18,20,21},20},
-    {{-1,16,17,18},{14,15,19},15},
-    {{10,-1,12,13},{11,14, 9},11},
+    // --- count-by-1, low (1-10) ---
+    {{ 3, 4,-1, 6},{ 2, 5, 7},  5},
+    {{ 7, 8, 9,-1},{ 7,10,11}, 10},
+    {{-1, 2, 3, 4},{ 1, 5, 0},  1},
+    {{ 5,-1, 7, 8},{ 4, 6, 9},  6},
+    {{ 1, 2,-1, 4},{ 3, 5, 6},  3},
+    {{ 6, 7, 8,-1},{ 9,10, 5},  9},
+    {{-1, 9,10,11},{ 7, 8,12},  8},
+    {{ 2, 3,-1, 5},{ 4, 6, 7},  4},
+    {{ 8,-1,10,11},{ 9,12, 7},  9},
+    // --- count-by-1, mid (10-20) ---
+    {{12,13,-1,15},{11,14,16}, 14},
+    {{17,18,19,-1},{18,20,21}, 20},
+    {{-1,16,17,18},{14,15,19}, 15},
+    {{10,-1,12,13},{11,14, 9}, 11},
+    {{13,14,-1,16},{12,15,17}, 15},
+    {{-1,12,13,14},{10,11,15}, 11},
+    {{18,19,-1,21},{17,20,22}, 20},
+    // --- count-by-1, high (20-30) ---
+    {{21,22,-1,24},{20,23,25}, 23},
+    {{24,25,26,-1},{23,27,28}, 27},
+    {{-1,28,29,30},{26,27,31}, 27},
+    {{26,-1,28,29},{25,27,30}, 27},
+    {{22,23,24,-1},{21,25,26}, 25},
+    // --- skip sequences (by 2s/3s/5s/10s) ---
+    {{ 2, 4,-1, 8},{ 5, 6, 7},  6},
+    {{ 2, 4, 6,-1},{ 7, 8, 9},  8},
+    {{ 3, 6,-1,12},{ 8, 9,10},  9},
+    {{ 5,10,-1,20},{12,15,18}, 15},
+    {{ 0, 5,10,-1},{12,15,20}, 15},
+    {{15,-1,25,30},{18,20,22}, 20},
+    {{10,20,-1,40},{25,30,35}, 30},
+    {{20,-1,40,50},{25,30,35}, 30},
+    {{ 4, 8,12,-1},{14,15,16}, 16},
 };
 static const int MISSNUM_N = sizeof(MISSNUM_DEF)/sizeof(MISSNUM_DEF[0]);
 
 static const AddQ ADD_DEF[] = {
+    // --- easy: sums under 10 ---
     {2,3,{4,5,6},  5}, {4,5,{8,9,10}, 9}, {1,6,{6,7,8},  7},
     {3,4,{6,7,8},  7}, {2,7,{8,9,10}, 9}, {1,1,{1,2,3},  2},
     {5,4,{7,8,9},  9}, {6,2,{7,8,9},  8}, {3,5,{7,8,9},  8},
     {2,6,{7,8,9},  8}, {4,3,{5,6,7},  7}, {1,4,{4,5,6},  5},
+    {2,2,{3,4,5},  4}, {3,3,{5,6,7},  6}, {1,8,{8,9,10}, 9},
+    {0,5,{4,5,6},  5}, {7,2,{8,9,10}, 9}, {4,4,{7,8,9},  8},
+    // --- medium: sums of 10 ---
+    {5,5,{ 9,10,11},10}, {6,4,{ 9,10,11},10}, {7,3,{ 9,10,11},10},
+    {8,2,{ 9,10,11},10}, {9,1,{ 9,10,11},10},
+    // --- hard: sums 11-20 (regrouping) ---
+    {6,5,{10,11,12},11}, {7,5,{11,12,13},12}, {8,4,{11,12,13},12},
+    {7,6,{12,13,14},13}, {8,6,{13,14,15},14}, {7,8,{14,15,16},15},
+    {9,5,{13,14,15},14}, {8,8,{15,16,17},16}, {9,7,{15,16,17},16},
+    {9,9,{17,18,19},18}, {8,9,{16,17,18},17}, {6,9,{14,15,16},15},
+    {7,7,{13,14,15},14}, {9,3,{11,12,13},12}, {6,6,{11,12,13},12},
+    {9,8,{16,17,18},17}, {8,7,{14,15,16},15}, {6,8,{13,14,15},14},
 };
 static const int ADD_N = sizeof(ADD_DEF)/sizeof(ADD_DEF[0]);
 
 static const Make10Q MAKE10_DEF[] = {
-    {6,{3,4,5},4}, {3,{6,7,8},7}, {7,{2,3,4},3}, {1,{7,8,9},9},
-    {4,{5,6,7},6}, {8,{1,2,3},2}, {2,{7,8,9},8}, {5,{4,5,6},5},
-    {9,{0,1,2},1}, {0,{8,9,10},10},
+    {0,{ 8, 9,10},10}, {1,{ 7, 8, 9}, 9}, {2,{ 7, 8, 9}, 8},
+    {3,{ 6, 7, 8}, 7}, {4,{ 5, 6, 7}, 6}, {5,{ 4, 5, 6}, 5},
+    {6,{ 3, 4, 5}, 4}, {7,{ 2, 3, 4}, 3}, {8,{ 1, 2, 3}, 2},
+    {9,{ 0, 1, 2}, 1}, {10,{0, 1, 2}, 0},
+    // shuffled distractors for variety in a 5-Q round
+    {2,{ 6, 8,10}, 8}, {3,{ 5, 7, 9}, 7}, {4,{ 4, 6, 8}, 6},
+    {6,{ 2, 4, 6}, 4}, {7,{ 1, 3, 5}, 3}, {8,{ 0, 2, 4}, 2},
+    {1,{ 7, 9,10}, 9}, {5,{ 3, 5, 7}, 5}, {9,{ 1, 2, 3}, 1},
 };
 static const int MAKE10_N = sizeof(MAKE10_DEF)/sizeof(MAKE10_DEF[0]);
 
 static const TenFrameQ TENFRAME_DEF[] = {
-    {3,{2,3,4},3}, {6,{5,6,7},6}, {8,{7,8,9},8}, {4,{3,4,5},4},
-    {10,{8,9,10},10}, {1,{1,2,3},1}, {5,{4,5,6},5}, {7,{6,7,8},7},
+    {1,{1,2,3},1},  {2,{1,2,3},2},  {3,{2,3,4},3},  {4,{3,4,5},4},
+    {5,{4,5,6},5},  {6,{5,6,7},6},  {7,{6,7,8},7},  {8,{7,8,9},8},
+    {9,{8,9,10},9}, {10,{8,9,10},10},
+    {3,{1,3,5},3},  {6,{4,6,8},6},  {7,{5,7,9},7},  {9,{7,9,11},9},
 };
 static const int TENFRAME_N = sizeof(TENFRAME_DEF)/sizeof(TENFRAME_DEF[0]);
 
 static const StartsQ STARTS_DEF[] = {
-    {'A',{"Cat","Apple","Sun"},1},  {'B',{"Cat","Ball","Sun"},1},
-    {'C',{"Cup","Pen","Hat"},0},    {'D',{"Apple","Duck","Car"},1},
-    {'E',{"Egg","Cat","Sun"},0},    {'F',{"Cat","Pen","Fish"},2},
-    {'G',{"Gum","Cat","Pen"},0},    {'H',{"Cat","Pen","Hat"},2},
-    {'I',{"Ice","Cat","Sun"},0},    {'J',{"Cat","Jam","Pen"},1},
-    {'K',{"Cat","Pen","Kite"},2},   {'L',{"Pen","Cat","Lion"},2},
-    {'M',{"Moon","Dog","Fish"},0},  {'N',{"Cat","Net","Pen"},1},
-    {'P',{"Pen","Cat","Sun"},0},    {'R',{"Cat","Pen","Rain"},2},
-    {'S',{"Tree","Star","Book"},1}, {'T',{"Cat","Tree","Pen"},1},
+    {'A',{"Cat","Apple","Sun"},1},   {'B',{"Cat","Ball","Sun"},1},
+    {'C',{"Cup","Pen","Hat"},0},     {'D',{"Apple","Duck","Car"},1},
+    {'E',{"Egg","Cat","Sun"},0},     {'F',{"Cat","Pen","Fish"},2},
+    {'G',{"Gum","Cat","Pen"},0},     {'H',{"Cat","Pen","Hat"},2},
+    {'I',{"Ice","Cat","Sun"},0},     {'J',{"Cat","Jam","Pen"},1},
+    {'K',{"Cat","Pen","Kite"},2},    {'L',{"Pen","Cat","Lion"},2},
+    {'M',{"Moon","Dog","Fish"},0},   {'N',{"Cat","Net","Pen"},1},
+    {'O',{"Owl","Cat","Pen"},0},     {'P',{"Pen","Cat","Sun"},0},
+    {'Q',{"Cat","Queen","Pen"},1},   {'R',{"Cat","Pen","Rain"},2},
+    {'S',{"Tree","Star","Book"},1},  {'T',{"Cat","Tree","Pen"},1},
+    {'U',{"Up","Cat","Pen"},0},      {'V',{"Cat","Van","Sun"},1},
+    {'W',{"Web","Cat","Pen"},0},     {'X',{"Cat","Pen","Box"},2},
+    {'Y',{"Yes","Cat","Sun"},0},     {'Z',{"Cat","Zip","Pen"},1},
+    {'B',{"Bus","Egg","Owl"},0},     {'D',{"Owl","Dog","Pen"},1},
+    {'F',{"Sun","Cat","Fan"},2},     {'M',{"Map","Pen","Owl"},0},
+    {'S',{"Cat","Sock","Pen"},1},    {'T',{"Owl","Pen","Top"},2},
 };
 static const int STARTS_N = sizeof(STARTS_DEF)/sizeof(STARTS_DEF[0]);
 
 static const MissLetQ MISSLET_DEF[] = {
+    // --- vowel 'a' / 'o' (easy) ---
     {"C_T",{'A','O','E'},0}, {"D_G",{'A','O','U'},1},
-    {"S_N",{'U','I','A'},0}, {"H_T",{'A','O','I'},0},
-    {"B_T",{'I','A','U'},1}, {"P_N",{'E','O','I'},0},
-    {"C_P",{'U','A','O'},0}, {"M_P",{'A','I','O'},0},
-    {"F_X",{'O','A','I'},0}, {"L_G",{'O','E','A'},0},
+    {"H_T",{'A','O','I'},0}, {"M_P",{'A','I','O'},0},
+    {"H_P",{'O','A','E'},1}, {"T_P",{'O','A','U'},1},
+    {"P_T",{'O','A','E'},1}, {"D_T",{'O','A','I'},1},
+    // --- vowels 'i' / 'e' / 'u' (medium) ---
+    {"P_N",{'I','E','A'},0}, {"S_T",{'I','A','O'},0},
+    {"B_G",{'U','I','A'},0}, {"P_G",{'I','U','A'},0},
+    {"R_D",{'E','A','O'},0}, {"B_D",{'E','I','A'},0},
+    {"M_D",{'U','O','A'},0}, {"C_P",{'U','A','O'},0},
+    {"P_N",{'E','O','I'},0}, {"S_N",{'U','I','A'},0},
+    // --- consonant blends / digraphs (hard) ---
+    {"FL_G",{'A','O','E'},0}, {"DR_M",{'U','A','I'},1},
+    {"CL_P",{'A','O','I'},0}, {"ST_P",{'O','A','E'},1},
+    {"SH_P",{'I','O','A'},0}, {"FR_G",{'O','A','U'},1},
+    {"GR_N",{'E','A','I'},1},
 };
 static const int MISSLET_N = sizeof(MISSLET_DEF)/sizeof(MISSLET_DEF[0]);
 
 static const RhymeQ RHYME_DEF[] = {
+    // --- short families: -at -an -in -op -ug ---
     {"cat", {"hat","dog","sun"},0},  {"sun", {"cat","fun","ball"},1},
     {"bug", {"hat","rug","pen"},1},  {"hop", {"hat","dog","top"},2},
+    {"man", {"can","dog","sun"},0},  {"pin", {"cat","win","sun"},1},
+    {"mop", {"cup","pop","sun"},1},  {"hug", {"hat","mug","pen"},1},
+    {"pan", {"dog","fan","sun"},1},  {"bin", {"fin","cat","pen"},0},
+    {"pat", {"mat","dog","sun"},0},  {"jug", {"dog","tug","pen"},1},
+    // --- longer families: -ake -ell -est -ing -ight ---
     {"cake",{"lake","duck","sun"},0},{"red", {"bed","pen","sun"},0},
     {"pig", {"cat","big","sun"},1},  {"fish",{"car","dish","sun"},1},
     {"car", {"jar","pen","fish"},0}, {"sing",{"sun","ring","cat"},1},
+    {"bell",{"well","cat","sun"},0}, {"best",{"dog","nest","sun"},1},
+    {"king",{"sun","wing","cat"},1}, {"light",{"cat","night","sun"},1},
+    {"rest",{"vest","dog","pen"},0}, {"sell",{"dog","tell","sun"},1},
+    {"bright",{"sun","sight","cat"},1},
 };
 static const int RHYME_N = sizeof(RHYME_DEF)/sizeof(RHYME_DEF[0]);
 
 static const UpperLowQ UPPER_DEF[] = {
-    {'b',{'B','D','P'},0}, {'d',{'B','D','Q'},1}, {'p',{'B','P','Q'},1},
-    {'q',{'P','D','Q'},2}, {'a',{'A','O','U'},0}, {'e',{'F','E','B'},1},
-    {'g',{'C','G','Q'},1}, {'m',{'N','W','M'},2}, {'n',{'M','N','H'},1},
-    {'r',{'P','B','R'},2}, {'s',{'Z','S','C'},1}, {'t',{'F','T','L'},1},
+    {'a',{'A','O','U'},0}, {'b',{'B','D','P'},0}, {'c',{'G','C','O'},1},
+    {'d',{'B','D','Q'},1}, {'e',{'F','E','B'},1}, {'f',{'E','F','T'},1},
+    {'g',{'C','G','Q'},1}, {'h',{'H','N','M'},0}, {'i',{'L','I','J'},1},
+    {'j',{'I','J','L'},1}, {'k',{'X','K','R'},1}, {'l',{'I','L','J'},1},
+    {'m',{'N','W','M'},2}, {'n',{'M','N','H'},1}, {'o',{'O','Q','C'},0},
+    {'p',{'B','P','Q'},1}, {'q',{'P','D','Q'},2}, {'r',{'P','B','R'},2},
+    {'s',{'Z','S','C'},1}, {'t',{'F','T','L'},1}, {'u',{'V','U','W'},1},
+    {'v',{'U','V','W'},1}, {'w',{'M','W','V'},1}, {'x',{'K','X','Y'},1},
+    {'y',{'V','Y','X'},1}, {'z',{'S','N','Z'},2},
 };
 static const int UPPER_N = sizeof(UPPER_DEF)/sizeof(UPPER_DEF[0]);
 
 static const SkipQ SKIP_DEF[] = {
-    {2,{2,4,6},{7,8,9},8},    {2,{4,6,8},{9,10,11},10},
-    {2,{6,8,10},{11,12,13},12},{2,{8,10,12},{13,14,15},14},
-    {2,{0,2,4},{5,6,7},6},    {2,{10,12,14},{15,16,17},16},
-    {3,{3,6,9},{10,11,12},12}, {3,{6,9,12},{13,14,15},15},
+    // by 2s
+    {2,{2,4,6},{7,8,9},8},      {2,{4,6,8},{9,10,11},10},
+    {2,{6,8,10},{11,12,13},12}, {2,{8,10,12},{13,14,15},14},
+    {2,{0,2,4},{5,6,7},6},      {2,{10,12,14},{15,16,17},16},
+    {2,{14,16,18},{19,20,21},20},
+    // by 3s
+    {3,{3,6,9},{10,11,12},12},  {3,{6,9,12},{13,14,15},15},
     {3,{9,12,15},{16,17,18},18},{3,{0,3,6},{7,8,9},9},
     {3,{12,15,18},{19,20,21},21},{3,{15,18,21},{22,23,24},24},
+    // by 4s
     {4,{4,8,12},{13,16,15},16}, {4,{8,12,16},{17,20,19},20},
     {4,{12,16,20},{21,24,25},24},{4,{0,4,8},{9,11,12},12},
+    {4,{16,20,24},{27,28,29},28},{4,{20,24,28},{31,32,33},32},
+    // by 5s
     {5,{5,10,15},{18,19,20},20},{5,{10,15,20},{23,24,25},25},
     {5,{15,20,25},{28,29,30},30},{5,{0,5,10},{13,14,15},15},
+    {5,{25,30,35},{38,39,40},40},{5,{30,35,40},{43,44,45},45},
+    // by 10s
+    {10,{10,20,30},{38,39,40},40},{10,{20,30,40},{48,49,50},50},
+    {10,{30,40,50},{58,59,60},60},{10,{0,10,20},{28,29,30},30},
+    {10,{40,50,60},{68,69,70},70},{10,{50,60,70},{78,79,80},80},
 };
 static const int SKIP_N = sizeof(SKIP_DEF)/sizeof(SKIP_DEF[0]);
 
 static const MultiplyQ MULT_DEF[] = {
+    // 2x (full)
     {2,1,{4,2,3},2},   {2,2,{2,4,6},4},   {2,3,{4,6,8},6},
     {2,4,{6,8,10},8},  {2,5,{8,10,12},10}, {2,6,{10,12,14},12},
     {2,7,{12,14,16},14},{2,8,{14,16,18},16},{2,9,{16,18,20},18},
-    {2,10,{18,20,22},20},{3,1,{6,3,9},3},  {3,2,{3,6,9},6},
-    {3,3,{6,9,12},9},  {3,4,{9,12,15},12}, {3,5,{12,15,18},15},
-    {3,6,{15,18,21},18},{3,7,{18,21,24},21},{3,8,{21,24,27},24},
-    {3,9,{24,27,30},27},{3,10,{27,30,33},30},{4,1,{8,4,3},4},
-    {4,2,{4,8,12},8},  {4,3,{8,12,16},12}, {4,4,{12,16,20},16},
-    {4,5,{16,20,24},20},{5,1,{5,10,3},5},  {5,2,{5,10,15},10},
-    {5,3,{10,15,20},15},{5,4,{15,20,25},20},{5,5,{20,25,30},25},
-    {5,6,{25,30,35},30},{5,7,{30,35,40},35},{5,8,{35,40,45},40},
-    {5,9,{40,45,50},45},{5,10,{45,50,55},50},
+    {2,10,{18,20,22},20},
+    // 3x (full)
+    {3,1,{6,3,9},3},  {3,2,{3,6,9},6},  {3,3,{6,9,12},9},
+    {3,4,{9,12,15},12}, {3,5,{12,15,18},15}, {3,6,{15,18,21},18},
+    {3,7,{18,21,24},21},{3,8,{21,24,27},24},{3,9,{24,27,30},27},
+    {3,10,{27,30,33},30},
+    // 4x (full)
+    {4,1,{8,4,3},4},  {4,2,{4,8,12},8},  {4,3,{8,12,16},12},
+    {4,4,{12,16,20},16},{4,5,{16,20,24},20},{4,6,{20,24,28},24},
+    {4,7,{24,28,32},28},{4,8,{28,32,36},32},{4,9,{32,36,40},36},
+    {4,10,{36,40,44},40},
+    // 5x (full)
+    {5,1,{5,10,3},5},  {5,2,{5,10,15},10}, {5,3,{10,15,20},15},
+    {5,4,{15,20,25},20},{5,5,{20,25,30},25},{5,6,{25,30,35},30},
+    {5,7,{30,35,40},35},{5,8,{35,40,45},40},{5,9,{40,45,50},45},
+    {5,10,{45,50,55},50},
+    // 6x
+    {6,2,{10,12,14},12}, {6,3,{16,18,20},18}, {6,4,{22,24,26},24},
+    {6,5,{28,30,32},30}, {6,6,{34,36,38},36}, {6,7,{40,42,44},42},
+    {6,8,{46,48,50},48}, {6,9,{52,54,56},54}, {6,10,{56,60,64},60},
+    // 7x
+    {7,2,{12,14,16},14}, {7,3,{19,21,23},21}, {7,4,{26,28,30},28},
+    {7,5,{33,35,37},35}, {7,6,{40,42,44},42}, {7,7,{47,49,51},49},
+    {7,8,{54,56,58},56}, {7,9,{61,63,65},63}, {7,10,{68,70,72},70},
+    // 8x
+    {8,2,{14,16,18},16}, {8,3,{22,24,26},24}, {8,4,{30,32,34},32},
+    {8,5,{38,40,42},40}, {8,6,{46,48,50},48}, {8,7,{54,56,58},56},
+    {8,8,{62,64,66},64}, {8,9,{70,72,74},72}, {8,10,{78,80,82},80},
+    // 9x
+    {9,2,{16,18,20},18}, {9,3,{25,27,29},27}, {9,4,{34,36,38},36},
+    {9,5,{43,45,47},45}, {9,6,{52,54,56},54}, {9,7,{61,63,65},63},
+    {9,8,{70,72,74},72}, {9,9,{79,81,83},81}, {9,10,{88,90,92},90},
+    // 10x
+    {10,2,{18,20,22},20},{10,3,{20,30,40},30}, {10,4,{30,40,50},40},
+    {10,5,{40,50,60},50},{10,6,{50,60,70},60}, {10,7,{60,70,80},70},
+    {10,8,{70,80,90},80},{10,9,{80,90,100},90},{10,10,{90,100,110},100},
 };
 static const int MULT_N = sizeof(MULT_DEF)/sizeof(MULT_DEF[0]);
 
@@ -254,6 +405,30 @@ static QDisplay g_qd;
 static char g_pin_buf[5] = "";
 static int  g_pin_len    = 0;
 
+// WiFi / weather / time
+static char  g_wifi_ssid[64]        = "";
+static char  g_wifi_pass[64]        = "";
+static bool  g_wifi_connected       = false;
+static bool  g_sntp_inited          = false;
+static bool  g_weather_fetching     = false;
+static char  g_weather_buf[80]      = "";
+// Home screen live-update handles (valid only while home screen is active)
+static lv_obj_t*   g_home_scr          = NULL;
+static lv_obj_t*   g_home_time_lbl     = NULL;
+static lv_obj_t*   g_home_greet_lbl    = NULL;
+static lv_obj_t*   g_home_weather_lbl  = NULL;
+static lv_timer_t* g_home_timer        = NULL;
+// WiFi screen widget refs (scan flow)
+static lv_obj_t*   g_wifi_kb           = NULL;
+static lv_obj_t*   g_wifi_pass_ta      = NULL;
+static lv_obj_t*   g_wifi_status_lbl   = NULL;
+static bool        g_scan_done         = false;
+static bool        g_scanning          = false;
+static char        g_sel_ssid[64]      = "";
+static lv_obj_t*   g_wifi_list         = NULL;
+static lv_obj_t*   g_wifi_scan_lbl     = NULL;
+static lv_timer_t* g_scan_poll_timer   = NULL;
+
 // ── NVS helpers ───────────────────────────────────────────────────────────────
 static void nvs_load_stars(void) {
     nvs_handle_t h;
@@ -268,6 +443,159 @@ static void nvs_save_stars(void) {
         nvs_set_i32(h, "stars", g_stars);
         nvs_commit(h);
         nvs_close(h);
+    }
+}
+
+// ── WiFi credentials NVS ──────────────────────────────────────────────────────
+static void wifi_creds_load(void) {
+    nvs_handle_t h;
+    if (nvs_open("wifi_creds", NVS_READONLY, &h) == ESP_OK) {
+        size_t sz = sizeof(g_wifi_ssid);
+        nvs_get_str(h, "ssid", g_wifi_ssid, &sz);
+        sz = sizeof(g_wifi_pass);
+        nvs_get_str(h, "pass", g_wifi_pass, &sz);
+        nvs_close(h);
+    }
+}
+static void wifi_creds_save(const char* ssid, const char* pass) {
+    strncpy(g_wifi_ssid, ssid, sizeof(g_wifi_ssid) - 1);
+    strncpy(g_wifi_pass, pass, sizeof(g_wifi_pass) - 1);
+    nvs_handle_t h;
+    if (nvs_open("wifi_creds", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_str(h, "ssid", g_wifi_ssid);
+        nvs_set_str(h, "pass", g_wifi_pass);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+// ── Home screen clock/weather timer (LVGL task context only) ──────────────────
+static const char* greeting_for_hour(int h) {
+    if (h >= 5  && h < 12) return "Good morning, Dhruv!";
+    if (h >= 12 && h < 18) return "Good afternoon, Dhruv!";
+    if (h >= 18 && h < 22) return "Good evening, Dhruv!";
+    return "Good night, Dhruv!";
+}
+static void home_clock_cb(lv_timer_t* t) {
+    if (!g_home_scr || lv_scr_act() != g_home_scr) {
+        lv_timer_delete(g_home_timer);
+        g_home_timer = NULL;
+        g_home_scr   = NULL;
+        return;
+    }
+    time_t now = time(NULL);
+    if (now > 1704067200L) {  // Jan 2024 = SNTP has synced
+        struct tm ti;
+        localtime_r(&now, &ti);
+        char tbuf[8];
+        snprintf(tbuf, sizeof(tbuf), "%02d:%02d", ti.tm_hour, ti.tm_min);
+        if (g_home_time_lbl)  lv_label_set_text(g_home_time_lbl, tbuf);
+        if (g_home_greet_lbl) lv_label_set_text(g_home_greet_lbl, greeting_for_hour(ti.tm_hour));
+    }
+    if (g_home_weather_lbl && g_weather_buf[0]) {
+        lv_label_set_text(g_home_weather_lbl, g_weather_buf);
+        lv_obj_set_style_opa(g_home_weather_lbl, LV_OPA_COVER, 0);
+    }
+}
+
+// ── Weather fetch (runs as its own FreeRTOS task) ─────────────────────────────
+// Uses wttr.in plain-text format — no JSON parsing needed.
+// %C = condition text, %t = temperature (e.g. "Partly cloudy +18°C")
+static char    s_http_buf[256];
+static int     s_http_len = 0;
+static esp_err_t http_event_cb(esp_http_client_event_t* evt) {
+    if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data_len > 0) {
+        int rem = (int)sizeof(s_http_buf) - s_http_len - 1;
+        if (rem > 0) {
+            int n = evt->data_len < rem ? evt->data_len : rem;
+            memcpy(s_http_buf + s_http_len, evt->data, n);
+            s_http_len += n;
+            s_http_buf[s_http_len] = '\0';
+        }
+    }
+    return ESP_OK;
+}
+static void weather_task(void* arg) {
+    vTaskDelay(pdMS_TO_TICKS(4000));  // let SNTP settle first
+    s_http_len    = 0;
+    s_http_buf[0] = '\0';
+
+    esp_http_client_config_t cfg = {};
+    cfg.url        = "http://wttr.in/?format=%25C+%25t";  // %C+%t URL-encoded
+    cfg.event_handler = http_event_cb;
+    cfg.timeout_ms = 10000;
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK && esp_http_client_get_status_code(client) == 200 && s_http_buf[0]) {
+        // Strip trailing newline
+        int len = strlen(s_http_buf);
+        while (len > 0 && (s_http_buf[len-1] == '\n' || s_http_buf[len-1] == '\r'))
+            s_http_buf[--len] = '\0';
+        strncpy(g_weather_buf, s_http_buf, sizeof(g_weather_buf) - 1);
+    }
+    esp_http_client_cleanup(client);
+    g_weather_fetching = false;
+    vTaskDelete(NULL);
+}
+
+// ── WiFi event handler ────────────────────────────────────────────────────────
+static void wifi_event_handler(void* arg, esp_event_base_t base,
+                               int32_t id, void* data) {
+    if (base == WIFI_EVENT) {
+        if (id == WIFI_EVENT_SCAN_DONE) {
+            g_scan_done = true;
+            g_scanning  = false;
+        } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
+            g_wifi_connected = false;
+            if (g_wifi_ssid[0]) esp_wifi_connect();
+        }
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        g_wifi_connected = true;
+        ESP_LOGI(TAG, "WiFi IP acquired");
+        if (!g_sntp_inited) {
+            g_sntp_inited = true;
+            setenv("TZ", "CST6CDT,M3.2.0,M11.1.0", 1);
+            tzset();
+            esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+            esp_sntp_setservername(0, "pool.ntp.org");
+            esp_sntp_init();
+        }
+        if (!g_weather_fetching) {
+            g_weather_fetching = true;
+            xTaskCreate(weather_task, "weather", 8192, NULL, 5, NULL);
+        }
+        // Update WiFi status label if screen is open
+        if (g_wifi_status_lbl) {
+            lvgl_port_lock(0);
+            lv_label_set_text(g_wifi_status_lbl, "Connected!");
+            lv_obj_set_style_text_color(g_wifi_status_lbl, lv_color_hex(C_CORRECT), 0);
+            lvgl_port_unlock();
+        }
+    }
+}
+
+// ── WiFi init ─────────────────────────────────────────────────────────────────
+static void wifi_init(void) {
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t wcfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&wcfg);
+
+    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL);
+
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_start();
+
+    if (g_wifi_ssid[0]) {
+        wifi_config_t wc = {};
+        strncpy((char*)wc.sta.ssid,     g_wifi_ssid, sizeof(wc.sta.ssid) - 1);
+        strncpy((char*)wc.sta.password, g_wifi_pass, sizeof(wc.sta.password) - 1);
+        esp_wifi_set_config(WIFI_IF_STA, &wc);
+        esp_wifi_connect();
     }
 }
 
@@ -472,6 +800,7 @@ static void prepare_question(void) {
 static void show_home(void);
 static void launch_arcade(void);
 static void launch_settings(void);
+static void launch_wifi(void);
 static void show_question(void);
 static void show_feedback(void);
 static void show_round_complete(void);
@@ -618,6 +947,9 @@ static void draw_dots(lv_obj_t* parent, int count) {
 // Bottom-center semi-transparent "Home" button for in-game screens.
 // ~120x50px, soft so it never competes with answer buttons; taps -> launcher.
 static void on_back_to_launcher(lv_event_t* e);
+static void on_ssid_selected(lv_event_t* e);
+static void show_wifi_password_screen(const char* ssid);
+static void launch_wifi(void);
 static void add_home_button(lv_obj_t* scr) {
     lv_obj_t* hb = lv_button_create(scr);
     lv_obj_set_size(hb, 120, 50);
@@ -641,6 +973,7 @@ static void add_home_button(lv_obj_t* scr) {
 // ── SCREEN: HOME ─────────────────────────────────────────────────────────────
 static void on_launch_arcade(lv_event_t* e) { launch_arcade(); }
 static void on_launch_settings(lv_event_t* e) { launch_settings(); }
+static void on_launch_wifi(lv_event_t* e) { launch_wifi(); }
 
 static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
                                 const char* name, uint32_t bg, uint32_t bg_dk,
@@ -664,10 +997,10 @@ static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
     lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(t, cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t* il = make_label(t, icon, &lv_font_montserrat_48, C_CARD_TXT);
-    lv_obj_align(il, LV_ALIGN_CENTER, 0, -24);
-    lv_obj_t* nl = make_label(t, name, &lv_font_montserrat_28, C_CARD_TXT);
-    lv_obj_align(nl, LV_ALIGN_CENTER, 0, 48);
+    lv_obj_t* il = make_label(t, icon, &lv_font_montserrat_32, C_CARD_TXT);
+    lv_obj_align(il, LV_ALIGN_CENTER, 0, -16);
+    lv_obj_t* nl = make_label(t, name, &lv_font_montserrat_24, C_CARD_TXT);
+    lv_obj_align(nl, LV_ALIGN_CENTER, 0, 30);
     return t;
 }
 
@@ -740,7 +1073,6 @@ static void show_home(void) {
     lvgl_port_lock(0);
 
     lv_obj_t* scr = lv_obj_create(NULL);
-    // Deep gradient background — not flat, has atmosphere
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0D0120), 0);
     lv_obj_set_style_bg_grad_color(scr, lv_color_hex(0x1C0848), 0);
     lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_VER, 0);
@@ -749,38 +1081,36 @@ static void show_home(void) {
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Decorative orbs — created first so they sit behind all content
+    // Decorative orbs behind everything
     lv_obj_t* orb1 = lv_obj_create(scr);
     lv_obj_set_size(orb1, 400, 400);
-    lv_obj_set_pos(orb1, SCR_W - 160, -140);
+    lv_obj_set_pos(orb1, SCR_W - 180, -120);
     lv_obj_set_style_radius(orb1, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(orb1, lv_color_hex(0x7B2FFF), 0);
-    lv_obj_set_style_bg_opa(orb1, 28, 0);
+    lv_obj_set_style_bg_opa(orb1, 30, 0);
     lv_obj_set_style_border_width(orb1, 0, 0);
     lv_obj_set_style_shadow_width(orb1, 0, 0);
     lv_obj_remove_flag(orb1, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(orb1, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t* orb2 = lv_obj_create(scr);
-    lv_obj_set_size(orb2, 320, 320);
-    lv_obj_set_pos(orb2, -110, SCR_H - 240);
+    lv_obj_set_size(orb2, 280, 280);
+    lv_obj_set_pos(orb2, -100, 340);
     lv_obj_set_style_radius(orb2, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(orb2, lv_color_hex(0x0044FF), 0);
-    lv_obj_set_style_bg_opa(orb2, 22, 0);
+    lv_obj_set_style_bg_opa(orb2, 20, 0);
     lv_obj_set_style_border_width(orb2, 0, 0);
     lv_obj_set_style_shadow_width(orb2, 0, 0);
     lv_obj_remove_flag(orb2, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(orb2, LV_OBJ_FLAG_CLICKABLE);
 
-    // Status bar: transparent — floats over gradient, long-press → admin PIN
+    // ── Top 20%: status bar + greeting widget (~205px) ────────────────────
+    // Status bar: transparent 60px, stars left, long-press → admin
     lv_obj_t* hdr = lv_obj_create(scr);
-    lv_obj_set_size(hdr, SCR_W, 100);
+    lv_obj_set_size(hdr, SCR_W, 60);
     lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_width(hdr, 1, 0);
-    lv_obj_set_style_border_color(hdr, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(hdr, 18, 0);
+    lv_obj_set_style_border_width(hdr, 0, 0);
     lv_obj_set_style_pad_all(hdr, 0, 0);
     lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
@@ -790,28 +1120,52 @@ static void show_home(void) {
     snprintf(star_buf, sizeof(star_buf), "* %ld", (long)g_stars);
     lv_obj_t* star_lbl = make_label(hdr, star_buf, &lv_font_montserrat_24, C_STAR);
     lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 24, 0);
+    lv_obj_t* ttl = make_label(hdr, "Kid Arcade", &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_align(ttl, LV_ALIGN_RIGHT_MID, -24, 0);
 
-    lv_obj_t* ttl = make_label(hdr, "Kid Arcade", &lv_font_montserrat_32, C_GOLD);
-    lv_obj_align(ttl, LV_ALIGN_CENTER, 0, 0);
+    // Stop any running timer from a prior home screen instance
+    if (g_home_timer) { lv_timer_delete(g_home_timer); g_home_timer = NULL; }
+    g_home_scr = scr;
 
-    // App grid: 2 tiles side by side, vertically centered in available space
-    const int TILE_W = 260, TILE_H = 300, TILE_GAP = 28;
-    const int GRID_W  = TILE_W * 2 + TILE_GAP;
-    const int CONTENT_H = SCR_H - 100;
-    const int GRID_Y  = 100 + (CONTENT_H - TILE_H) / 3;  // upper-third of content
+    // Resolve greeting + time
+    time_t now = time(NULL);
+    char   init_time[8]  = "--:--";
+    const char* init_greet = "Hello, Dhruv!";
+    if (now > 1704067200L) {
+        struct tm ti;
+        localtime_r(&now, &ti);
+        snprintf(init_time, sizeof(init_time), "%02d:%02d", ti.tm_hour, ti.tm_min);
+        init_greet = greeting_for_hour(ti.tm_hour);
+    }
 
-    lv_obj_t* grid = lv_obj_create(scr);
-    lv_obj_set_size(grid, GRID_W, TILE_H);
-    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, GRID_Y);
-    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(grid, 0, 0);
-    lv_obj_set_style_pad_all(grid, 0, 0);
-    lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+    // Greeting + time (save refs for live updates)
+    g_home_greet_lbl = make_label(scr, init_greet, &lv_font_montserrat_32, C_CARD_TXT);
+    lv_obj_align(g_home_greet_lbl, LV_ALIGN_TOP_MID, 0, 76);
 
-    make_app_tile(grid, "A", "Arcade",
-                  C_MATH, C_MATH_DK, 0, 0, TILE_W, TILE_H, on_launch_arcade);
-    make_app_tile(grid, "S", "Settings",
-                  C_BTN_ALT, 0x4A339A, TILE_W + TILE_GAP, 0, TILE_W, TILE_H, on_launch_settings);
+    g_home_time_lbl = make_label(scr, init_time, &lv_font_montserrat_48, C_GOLD);
+    lv_obj_align(g_home_time_lbl, LV_ALIGN_TOP_MID, 0, 122);
+
+    const char* w_init = g_weather_buf[0] ? g_weather_buf : "Connect WiFi for weather";
+    g_home_weather_lbl = make_label(scr, w_init, &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_set_style_opa(g_home_weather_lbl, LV_OPA_60, 0);
+    lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_MID, 0, 182);
+
+    // ── Bottom app row: 3 tiles pinned to bottom ──────────────────────────
+    const int TILE_W = 170, TILE_H = 175, TILE_GAP = 22;
+    const int ROW_Y  = SCR_H - TILE_H - 48;
+    const int ROW_X  = (SCR_W - (TILE_W * 3 + TILE_GAP * 2)) / 2;
+
+    make_app_tile(scr, "A", "Arcade",
+                  C_MATH, C_MATH_DK,
+                  ROW_X, ROW_Y, TILE_W, TILE_H, on_launch_arcade);
+    make_app_tile(scr, "W", "WiFi",
+                  0x005FAD, 0x003D73,
+                  ROW_X + TILE_W + TILE_GAP, ROW_Y, TILE_W, TILE_H, on_launch_wifi);
+    make_app_tile(scr, "S", "Settings",
+                  C_BTN_ALT, 0x4A339A,
+                  ROW_X + (TILE_W + TILE_GAP) * 2, ROW_Y, TILE_W, TILE_H, on_launch_settings);
+
+    g_home_timer = lv_timer_create(home_clock_cb, 1000, NULL);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     lvgl_port_unlock();
@@ -912,6 +1266,253 @@ static void launch_settings(void) {
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
     lvgl_port_unlock();
+}
+
+// ── WiFi scan-and-select ──────────────────────────────────────────────────────
+
+static const char* signal_str(int rssi) {
+    if (rssi >= -60) return "Strong";
+    if (rssi >= -70) return "Good";
+    if (rssi >= -80) return "Fair";
+    return "Weak";
+}
+
+static void wifi_do_scan(void) {
+    if (g_scanning) return;
+    g_scan_done = false;
+    g_scanning  = true;
+    wifi_scan_config_t sc = {};
+    sc.show_hidden = false;
+    esp_wifi_scan_start(&sc, false);
+}
+
+static void on_scan_poll(lv_timer_t* t) {
+    if (!g_scan_done) return;
+    lv_timer_delete(t);
+    g_scan_poll_timer = NULL;
+
+    uint16_t count = 0;
+    esp_wifi_scan_get_ap_num(&count);
+    if (count == 0) {
+        if (g_wifi_scan_lbl) lv_label_set_text(g_wifi_scan_lbl, "No networks found. Tap Scan.");
+        return;
+    }
+    if (count > 20) count = 20;
+
+    wifi_ap_record_t* aps = (wifi_ap_record_t*)malloc(count * sizeof(wifi_ap_record_t));
+    if (!aps) return;
+    esp_wifi_scan_get_ap_records(&count, aps);
+
+    lvgl_port_lock(0);
+    if (g_wifi_scan_lbl) lv_label_set_text(g_wifi_scan_lbl, "Tap a network:");
+    if (g_wifi_list) lv_obj_clean(g_wifi_list);
+
+    for (int i = 0; i < count; i++) {
+        if (aps[i].ssid[0] == '\0') continue;
+        char buf[80];
+        snprintf(buf, sizeof(buf), "%s  (%s)", (char*)aps[i].ssid, signal_str(aps[i].rssi));
+        lv_obj_t* btn = lv_list_add_btn(g_wifi_list, NULL, buf);
+        lv_obj_set_height(btn, 72);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(C_BTN), 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+        lv_obj_set_style_text_color(btn, lv_color_hex(C_CARD_TXT), 0);
+        lv_obj_set_style_radius(btn, 12, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_t* item_lbl = lv_obj_get_child(btn, 0);
+        if (item_lbl) lv_obj_set_style_text_font(item_lbl, &lv_font_montserrat_28, 0);
+        lv_obj_set_user_data(btn, strdup((char*)aps[i].ssid));
+        lv_obj_add_event_cb(btn, on_ssid_selected, LV_EVENT_CLICKED, NULL);
+    }
+    lvgl_port_unlock();
+    free(aps);
+}
+
+static void on_ssid_selected(lv_event_t* e) {
+    lv_obj_t* btn = (lv_obj_t*)lv_event_get_target(e);
+    const char* ssid = (const char*)lv_obj_get_user_data(btn);
+    if (!ssid || ssid[0] == '\0') return;
+    strncpy(g_sel_ssid, ssid, sizeof(g_sel_ssid) - 1);
+    g_sel_ssid[sizeof(g_sel_ssid) - 1] = '\0';
+    show_wifi_password_screen(g_sel_ssid);
+}
+
+static void on_wifi_scan_again(lv_event_t* e) {
+    if (g_wifi_scan_lbl) lv_label_set_text(g_wifi_scan_lbl, "Scanning...");
+    if (g_wifi_list) lv_obj_clean(g_wifi_list);
+    wifi_do_scan();
+    if (!g_scan_poll_timer)
+        g_scan_poll_timer = lv_timer_create(on_scan_poll, 500, NULL);
+}
+
+static void on_wifi_pass_back(lv_event_t* e) {
+    launch_wifi();
+}
+
+static void on_wifi_connect_btn(lv_event_t* e) {
+    if (!g_wifi_pass_ta || !g_sel_ssid[0]) return;
+    const char* pass = lv_textarea_get_text(g_wifi_pass_ta);
+    if (g_wifi_status_lbl) {
+        lv_label_set_text(g_wifi_status_lbl, "Connecting...");
+        lv_obj_set_style_text_color(g_wifi_status_lbl, lv_color_hex(C_SUBTEXT), 0);
+    }
+    wifi_creds_save(g_sel_ssid, pass ? pass : "");
+    wifi_config_t wc = {};
+    strncpy((char*)wc.sta.ssid,     g_sel_ssid, sizeof(wc.sta.ssid) - 1);
+    strncpy((char*)wc.sta.password, g_wifi_pass, sizeof(wc.sta.password) - 1);
+    esp_wifi_set_config(WIFI_IF_STA, &wc);
+    esp_wifi_disconnect();
+    esp_wifi_connect();
+}
+
+static void show_wifi_password_screen(const char* ssid) {
+    g_wifi_kb         = NULL;
+    g_wifi_pass_ta    = NULL;
+    g_wifi_status_lbl = NULL;
+
+    lvgl_port_lock(0);
+    lv_obj_t* scr = lv_obj_create(NULL);
+    style_screen(scr);
+
+    lv_obj_t* hdr = make_header(scr, 88);
+    lv_obj_t* bk = lv_button_create(hdr);
+    lv_obj_set_size(bk, 64, 56);
+    lv_obj_align(bk, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_obj_set_style_bg_color(bk, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_color(bk, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(bk, 14, 0);
+    lv_obj_set_style_border_width(bk, 0, 0);
+    lv_obj_set_style_shadow_width(bk, 0, 0);
+    lv_obj_t* bk_lbl = lv_label_create(bk);
+    lv_label_set_text(bk_lbl, "<");
+    lv_obj_set_style_text_font(bk_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(bk_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(bk_lbl);
+    lv_obj_add_event_cb(bk, on_wifi_pass_back, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* hl = make_label(hdr, "WiFi", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
+
+    char net_buf[80];
+    snprintf(net_buf, sizeof(net_buf), "Network: %s", ssid);
+    lv_obj_t* net_lbl = make_label(scr, net_buf, &lv_font_montserrat_28, C_GOLD);
+    lv_obj_align(net_lbl, LV_ALIGN_TOP_MID, 0, 110);
+
+    g_wifi_status_lbl = make_label(scr,
+        g_wifi_connected ? "Connected" : "",
+        &lv_font_montserrat_24, C_CORRECT);
+    lv_obj_align(g_wifi_status_lbl, LV_ALIGN_TOP_MID, 0, 158);
+
+    lv_obj_t* pass_lbl = make_label(scr, "Password", &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_align(pass_lbl, LV_ALIGN_TOP_LEFT, 28, 200);
+
+    g_wifi_pass_ta = lv_textarea_create(scr);
+    lv_obj_set_size(g_wifi_pass_ta, SCR_W - 56, 64);
+    lv_obj_align(g_wifi_pass_ta, LV_ALIGN_TOP_MID, 0, 234);
+    lv_textarea_set_one_line(g_wifi_pass_ta, true);
+    lv_textarea_set_max_length(g_wifi_pass_ta, 63);
+    lv_textarea_set_password_mode(g_wifi_pass_ta, true);
+    lv_textarea_set_placeholder_text(g_wifi_pass_ta, "Enter password");
+    if (g_wifi_pass[0]) lv_textarea_set_text(g_wifi_pass_ta, g_wifi_pass);
+    lv_obj_set_style_text_font(g_wifi_pass_ta, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_bg_color(g_wifi_pass_ta, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_text_color(g_wifi_pass_ta, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_set_style_border_color(g_wifi_pass_ta, lv_color_hex(C_GOLD), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(g_wifi_pass_ta, 2, LV_STATE_FOCUSED);
+
+    lv_obj_t* conn_btn = lv_button_create(scr);
+    lv_obj_set_size(conn_btn, 220, 72);
+    lv_obj_align(conn_btn, LV_ALIGN_TOP_MID, 0, 322);
+    lv_obj_set_style_bg_color(conn_btn, lv_color_hex(0x005FAD), 0);
+    lv_obj_set_style_bg_color(conn_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(conn_btn, 18, 0);
+    lv_obj_set_style_border_width(conn_btn, 0, 0);
+    lv_obj_set_style_shadow_width(conn_btn, 20, 0);
+    lv_obj_set_style_shadow_opa(conn_btn, 100, 0);
+    lv_obj_t* conn_lbl = lv_label_create(conn_btn);
+    lv_label_set_text(conn_lbl, "Connect");
+    lv_obj_set_style_text_font(conn_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(conn_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(conn_lbl);
+    lv_obj_add_event_cb(conn_btn, on_wifi_connect_btn, LV_EVENT_CLICKED, NULL);
+
+    g_wifi_kb = lv_keyboard_create(scr);
+    lv_obj_set_size(g_wifi_kb, SCR_W, 480);
+    lv_obj_align(g_wifi_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_text_font(g_wifi_kb, &lv_font_montserrat_24, 0);
+    lv_keyboard_set_textarea(g_wifi_kb, g_wifi_pass_ta);
+
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lvgl_port_unlock();
+}
+
+static void launch_wifi(void) {
+    if (g_scan_poll_timer) {
+        lv_timer_delete(g_scan_poll_timer);
+        g_scan_poll_timer = NULL;
+    }
+    g_wifi_list     = NULL;
+    g_wifi_scan_lbl = NULL;
+
+    lvgl_port_lock(0);
+    lv_obj_t* scr = lv_obj_create(NULL);
+    style_screen(scr);
+
+    lv_obj_t* hdr = make_header(scr, 88);
+    lv_obj_t* bk = lv_button_create(hdr);
+    lv_obj_set_size(bk, 64, 56);
+    lv_obj_align(bk, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_obj_set_style_bg_color(bk, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_color(bk, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(bk, 14, 0);
+    lv_obj_set_style_border_width(bk, 0, 0);
+    lv_obj_set_style_shadow_width(bk, 0, 0);
+    lv_obj_t* bk_lbl = lv_label_create(bk);
+    lv_label_set_text(bk_lbl, "<");
+    lv_obj_set_style_text_font(bk_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(bk_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(bk_lbl);
+    lv_obj_add_event_cb(bk, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* hl = make_label(hdr, "WiFi", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
+
+    if (g_wifi_connected) {
+        lv_obj_t* ci = make_label(scr, "Connected", &lv_font_montserrat_24, C_CORRECT);
+        lv_obj_align(ci, LV_ALIGN_TOP_RIGHT, -20, 98);
+    }
+
+    g_wifi_scan_lbl = make_label(scr, "Scanning...", &lv_font_montserrat_28, C_SUBTEXT);
+    lv_obj_align(g_wifi_scan_lbl, LV_ALIGN_TOP_LEFT, 20, 100);
+
+    g_wifi_list = lv_list_create(scr);
+    lv_obj_set_size(g_wifi_list, SCR_W - 16, SCR_H - 248 - 80);
+    lv_obj_align(g_wifi_list, LV_ALIGN_TOP_MID, 0, 148);
+    lv_obj_set_style_bg_color(g_wifi_list, lv_color_hex(C_HEADER), 0);
+    lv_obj_set_style_border_width(g_wifi_list, 0, 0);
+    lv_obj_set_style_radius(g_wifi_list, 12, 0);
+    lv_obj_set_style_pad_row(g_wifi_list, 6, 0);
+    lv_obj_set_style_pad_all(g_wifi_list, 8, 0);
+    lv_obj_set_style_clip_corner(g_wifi_list, true, 0);
+
+    lv_obj_t* rescan_btn = lv_button_create(scr);
+    lv_obj_set_size(rescan_btn, 200, 60);
+    lv_obj_align(rescan_btn, LV_ALIGN_BOTTOM_MID, 0, -16);
+    lv_obj_set_style_bg_color(rescan_btn, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_color(rescan_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(rescan_btn, 14, 0);
+    lv_obj_set_style_border_width(rescan_btn, 0, 0);
+    lv_obj_t* rl = lv_label_create(rescan_btn);
+    lv_label_set_text(rl, "Scan again");
+    lv_obj_set_style_text_font(rl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(rl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_center(rl);
+    lv_obj_add_event_cb(rescan_btn, on_wifi_scan_again, LV_EVENT_CLICKED, NULL);
+
+    g_scan_poll_timer = lv_timer_create(on_scan_poll, 500, NULL);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lvgl_port_unlock();
+
+    wifi_do_scan();
 }
 
 // ── SCREEN: QUESTION ─────────────────────────────────────────────────────────
@@ -1300,6 +1901,7 @@ extern "C" void app_main(void) {
         nvs_flash_init();
     }
     nvs_load_stars();
+    wifi_creds_load();
     brightness_load();
     brightness_init();    // LEDC PWM backlight, duty 0 until display is up
 
@@ -1416,6 +2018,8 @@ extern "C" void app_main(void) {
     // Backlight on — ramp to saved brightness now that the panel is live.
     set_brightness(g_brightness);
     ESP_LOGI(TAG, "Display up — launching game");
+
+    wifi_init();
 
     show_home();
 }
