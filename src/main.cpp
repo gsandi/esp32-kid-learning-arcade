@@ -1086,98 +1086,6 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
     return card;
 }
 
-// ── Mountain background ───────────────────────────────────────────────────────
-// Drawn on a full-screen canvas (z-index 0) behind all screen content.
-// Sky in 3 horizontal bands → far mountains → near mountains → stars.
-// Safe content zone: Y 0–724. Mountains occupy Y 724–1024.
-static uint8_t* s_bg_buf = nullptr;
-
-static void draw_mountain_bg(lv_obj_t* scr) {
-    if (!s_bg_buf) {
-        s_bg_buf = (uint8_t*)heap_caps_malloc(600 * 1024 * 2, MALLOC_CAP_DEFAULT);
-        if (!s_bg_buf) { ESP_LOGW(TAG, "mountain bg: alloc failed"); return; }
-    }
-
-    lv_obj_t* canvas = lv_canvas_create(scr);
-    lv_canvas_set_buffer(canvas, s_bg_buf, 600, 1024, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(canvas, 0, 0);
-    lv_obj_set_size(canvas, 600, 1024);
-    lv_obj_remove_flag(canvas, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(canvas, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_layer_t layer;
-    lv_canvas_init_layer(canvas, &layer);
-
-    // Sky — 3 bands simulating a vertical gradient
-    lv_draw_rect_dsc_t sky;
-    lv_draw_rect_dsc_init(&sky);
-    sky.bg_opa = LV_OPA_COVER;
-    sky.border_width = 0;
-    sky.radius = 0;
-    sky.shadow_width = 0;
-    const struct { lv_color_t c; int32_t y1; int32_t y2; } bands[] = {
-        { lv_color_hex(0x100224),   0, 299 },
-        { lv_color_hex(0x160830), 300, 549 },
-        { lv_color_hex(0x1F0A45), 550, 723 },
-    };
-    for (auto& b : bands) {
-        sky.bg_color = b.c;
-        lv_area_t a = {0, b.y1, 599, b.y2};
-        lv_draw_rect(&layer, &sky, &a);
-    }
-
-    // Triangle fill helper — fan-triangulates a polygon from its first point
-    lv_draw_triangle_dsc_t tri;
-    lv_draw_triangle_dsc_init(&tri);
-    tri.opa = LV_OPA_COVER;
-    tri.grad.dir = LV_GRAD_DIR_NONE;
-
-    // Far mountains (range A, lighter indigo)
-    tri.color = lv_color_hex(0x2A1660);
-    const lv_point_precise_t ma[] = {
-        {0,924},{0,860},{60,820},{110,780},{160,810},
-        {220,750},{290,790},{360,724},{430,790},{490,755},
-        {540,800},{600,840},{600,924}
-    };
-    for (int i = 1; i + 1 < 13; i++) {
-        tri.p[0] = ma[0]; tri.p[1] = ma[i]; tri.p[2] = ma[i+1];
-        lv_draw_triangle(&layer, &tri);
-    }
-
-    // Near mountains (range B, dark indigo — grounds into screen edge)
-    tri.color = lv_color_hex(0x1C0E42);
-    const lv_point_precise_t mb[] = {
-        {0,1024},{0,900},{80,870},{150,848},{200,870},
-        {270,840},{340,862},{410,852},{480,875},{540,860},
-        {600,895},{600,1024}
-    };
-    for (int i = 1; i + 1 < 12; i++) {
-        tri.p[0] = mb[0]; tri.p[1] = mb[i]; tri.p[2] = mb[i+1];
-        lv_draw_triangle(&layer, &tri);
-    }
-
-    // Stars — 18 fixed 4×4 dots in the sky zone (Y < 680)
-    lv_draw_rect_dsc_t dot;
-    lv_draw_rect_dsc_init(&dot);
-    dot.bg_color  = lv_color_hex(0xFFFFFF);
-    dot.bg_opa    = 140;
-    dot.radius    = LV_RADIUS_CIRCLE;
-    dot.border_width = 0;
-    dot.shadow_width = 0;
-    static const lv_point_precise_t stars[18] = {
-        {48,60},{112,38},{195,88},{280,22},{350,55},
-        {430,35},{510,78},{565,48},{90,145},{230,120},
-        {390,135},{520,110},{155,200},{310,180},{470,215},
-        {60,280},{410,260},{545,300}
-    };
-    for (auto& s : stars) {
-        lv_area_t sa = {s.x-2, s.y-2, s.x+2, s.y+2};
-        lv_draw_rect(&layer, &dot, &sa);
-    }
-
-    lv_canvas_finish_layer(canvas, &layer);
-    lv_obj_move_to_index(canvas, 0);
-}
 
 static void show_home(void) {
     lvgl_port_lock(0);
@@ -1190,9 +1098,8 @@ static void show_home(void) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    draw_mountain_bg(scr);
 
-    // Decorative orbs (rendered above mountain canvas)
+    // Decorative orbs
     lv_obj_t* orb1 = lv_obj_create(scr);
     lv_obj_set_size(orb1, 400, 400);
     lv_obj_set_pos(orb1, SCR_W - 180, -120);
@@ -1328,7 +1235,6 @@ static void launch_settings(void) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    draw_mountain_bg(scr);
 
     // ── Header ────────────────────────────────────────────────────────────
     lv_obj_t* hdr = make_header(scr, 88);
