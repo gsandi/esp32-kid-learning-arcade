@@ -931,8 +931,9 @@ static void draw_ten_frame(lv_obj_t* parent, int filled) {
 
 // ── Dot visual (count questions) ──────────────────────────────────────────────
 static void draw_dots(lv_obj_t* parent, int count) {
-    if (count <= 0 || count > 12) return;
-    const int D = 64, GAP = 14;
+    if (count <= 0 || count > 20) return;
+    const int D   = (count > 12) ? 48 : 64;
+    const int GAP = (count > 12) ? 10 : 14;
     int cols = (count <= 4) ? count : (count <= 8) ? 4 : 5;
     int rows = (count + cols - 1) / cols;
     int total_w = cols * D + (cols-1) * GAP;
@@ -969,8 +970,8 @@ static void show_wifi_password_screen(const char* ssid);
 static void launch_wifi(void);
 static void add_home_button(lv_obj_t* scr) {
     lv_obj_t* hb = lv_button_create(scr);
-    lv_obj_set_size(hb, 120, 50);
-    lv_obj_align(hb, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_size(hb, 64, 56);
+    lv_obj_align(hb, LV_ALIGN_TOP_RIGHT, -14, 16);
     lv_obj_set_style_bg_color(hb, lv_color_hex(C_BTN), 0);
     lv_obj_set_style_bg_opa(hb, LV_OPA_40, 0);
     lv_obj_set_style_bg_color(hb, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
@@ -979,8 +980,8 @@ static void add_home_button(lv_obj_t* scr) {
     lv_obj_set_style_border_width(hb, 0, 0);
     lv_obj_set_style_shadow_width(hb, 0, 0);
     lv_obj_t* hl = lv_label_create(hb);
-    lv_label_set_text(hl, "Home");
-    lv_obj_set_style_text_font(hl, &lv_font_montserrat_24, 0);
+    lv_label_set_text(hl, "H");
+    lv_obj_set_style_text_font(hl, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(hl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_set_style_text_opa(hl, LV_OPA_80, 0);
     lv_obj_center(hl);
@@ -1751,7 +1752,7 @@ static void show_question(void) {
     char prog[20];
     snprintf(prog, sizeof(prog), "Q %d/%d", g_q_idx+1, QUESTIONS_PER_ROUND);
     lv_obj_t* pl = make_label(hdr, prog, &lv_font_montserrat_24, C_SUBTEXT);
-    lv_obj_align(pl, LV_ALIGN_RIGHT_MID, -18, 0);
+    lv_obj_align(pl, LV_ALIGN_RIGHT_MID, -88, 0);
 
     // ── Middle content region (between header and answer stack) ──────────────
     const int BTN_H = 110, BTN_GAP = 16, BTN_MARGIN = 30;
