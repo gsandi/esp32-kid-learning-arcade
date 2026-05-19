@@ -1,0 +1,35 @@
+dependencies:
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp_lcd_touch:
+    dependencies: []
+    source:
+      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/espressif__esp_lcd_touch
+      type: local
+    version: 1.2.1
+  idf:
+    source:
+      type: idf
+    version: 6.0.1
+  lvgl/lvgl:
+    dependencies: []
+    source:
+      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/lvgl__lvgl
+      type: local
+    version: 9.3.0
+direct_dependencies:
+- espressif/cmake_utilities
+- espressif/esp_lcd_touch
+- idf
+- lvgl/lvgl
+manifest_hash: 11ddf72b3fc90533ffb8cf2555393177480668c7b269478a0e02f9c2c8c771ed
+target: esp32p4
+version: 2.0.0

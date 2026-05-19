@@ -1,0 +1,26 @@
+## ESP-IDF component dependencies for kid_arcade (ESP32-P4 / CrowPanel 7")
+##
+## Consumed by the ESP-IDF component manager (idf.py or PlatformIO espidf).
+## Do NOT duplicate these in platformio.ini lib_deps — that would pull in the
+## Arduino-framework versions and cause duplicate symbol errors.
+
+dependencies:
+  idf: ">=5.2.0"
+
+  ## LVGL — UI toolkit.  9.x API is required; 10.x is not yet stable.
+  lvgl/lvgl:
+    version: ">=9.0.0,<10.0.0"
+    rules:
+      - if: "idf_target == esp32p4"
+
+  ## Capacitive touch driver for GT911 over I2C
+  espressif/esp_lcd_touch_gt911:
+    version: "*"
+    rules:
+      - if: "idf_target == esp32p4"
+
+  ## MIPI DSI panel driver for EK79007 (CrowPanel 7" 1024x600)
+  espressif/esp_lcd_ek79007:
+    version: "*"
+    rules:
+      - if: "idf_target == esp32p4"

@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kid Arcade — Design Mockups</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #2C2420;
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 32px;
+    gap: 48px;
+  }
+
+  h1 {
+    color: #D4860A;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.8;
+  }
+
+  .screens-row {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .screen-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .screen-label {
+    color: #9A8A7A;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Device frame */
+  .device {
+    width: 300px;
+    height: 500px;
+    background: #1A1410;
+    border-radius: 32px;
+    padding: 10px;
+    box-shadow:
+      0 0 0 1px #3A3028,
+      0 32px 64px rgba(0,0,0,0.6);
+    position: relative;
+  }
+
+  .screen {
+    width: 100%;
+    height: 100%;
+    background: #F9F5EE;
+    border-radius: 24px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* ── Shared components ── */
+
+  .header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 10px;
+    flex-shrink: 0;
+  }
+
+  .back-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #F0EAD6;
+    border-radius: 10px;
+    color: #1C1710;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .star-count {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #D4860A;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  /* Reading mode tints */
+  .reading-screen .header-bar { background: #F0F5FA; border-bottom: 1px solid #D0E0EE; }
+  .reading-screen .back-btn { background: #D8E8F4; color: #1A3050; }
+  .reading-screen .star-count { color: #4A7FA5; }
+  .reading-screen .question-card { background: #E8EFF5; box-shadow: 0 4px 12px rgba(40,80,120,0.08); }
+  .reading-screen .blank { border-bottom-color: #4A7FA5; }
+  .reading-screen .answer-btn { background: #D8E8F4; color: #1A3050; }
+  .reading-screen .answer-btn:hover { background: #B8CEE4; }
+  .reading-screen .correct-ring { box-shadow: 0 0 0 3px #4A7FA5; }
+  .reading-screen .star-burst-center { color: #4A7FA5; }
+  .reading-screen .plus-one { color: #4A7FA5; }
+  .reading-screen svg circle, .reading-screen svg line { stroke: #4A7FA5 !important; }
+
+  .star-count .star-icon { font-size: 14px; }
+
+  .keyboard-reserve {
+    height: 32px;
+    flex-shrink: 0;
+  }
+
+  /* ── Screen 1: Home ── */
+
+  .home-greeting {
+    padding: 8px 20px 0;
+  }
+
+  .home-greeting h2 {
+    font-size: 28px;
+    font-weight: 800;
+    color: #1C1710;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  .home-greeting p {
+    font-size: 13px;
+    color: #7A6E5C;
+    margin-top: 2px;
+  }
+
+  .game-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 16px 16px 0;
+    flex: 1;
+  }
+
+  .game-card {
+    background: #F0EAD6;
+    border-radius: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 12px;
+    gap: 10px;
+    box-shadow: 0 4px 12px rgba(100, 70, 20, 0.10);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  .game-card:hover { transform: translateY(-2px); }
+
+  .game-card.math {
+    background: #F5EDD8;
+    border-top: 3px solid #D4860A;
+  }
+
+  .game-card.reading {
+    background: #E8EFF5;
+    border-top: 3px solid #4A7FA5;
+    box-shadow: 0 4px 12px rgba(40, 80, 120, 0.10);
+  }
+
+  .game-card.reading .card-icon { color: #4A7FA5; }
+  .game-card.reading .card-title { color: #1A3050; }
+  .game-card.reading .card-sub { color: #4A6880; }
+
+  .card-icon {
+    width: 44px;
+    height: 44px;
+    color: #7A6E5C;
+  }
+
+  .card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1C1710;
+  }
+
+  .card-sub {
+    font-size: 10px;
+    color: #7A6E5C;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  .home-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 0 8px;
+    border-top: 1px solid #E8DFC8;
+    margin: 0 16px;
+    color: #D4860A;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* ── Screen 2: Question ── */
+
+  .question-zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 14px 0;
+    gap: 10px;
+  }
+
+  .question-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1C1710;
+    text-align: center;
+  }
+
+  .question-card {
+    background: #F0EAD6;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    flex: 1;
+    box-shadow: 0 4px 12px rgba(100, 70, 20, 0.08);
+  }
+
+  .question-text {
+    font-size: 30px;
+    font-weight: 800;
+    color: #1C1710;
+    letter-spacing: -0.02em;
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .blank {
+    display: inline-block;
+    border-bottom: 3px solid #D4860A;
+    min-width: 40px;
+    margin-left: 4px;
+  }
+
+  .answer-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 0 14px;
+    flex-shrink: 0;
+  }
+
+  .answer-btn {
+    background: #E8DFC8;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 8px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1C1710;
+    cursor: pointer;
+    transition: background 0.1s, transform 0.1s;
+    font-family: inherit;
+  }
+
+  .answer-btn:hover { background: #C8B896; transform: scale(0.97); }
+
+  .answer-btn.correct-ring {
+    background: #E8DFC8;
+    box-shadow: 0 0 0 3px #D4860A;
+  }
+
+  .answer-btn.correct-ring-green {
+    background: #E8F0E4;
+    box-shadow: 0 0 0 3px #3D8B5C;
+  }
+
+  /* ── Screen 3: Correct Feedback ── */
+
+  .feedback-zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 14px;
+  }
+
+  .star-burst {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+
+  .star-burst svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .star-burst-center {
+    font-size: 32px;
+    color: #D4860A;
+    z-index: 1;
+    position: relative;
+  }
+
+  .plus-one {
+    font-size: 22px;
+    font-weight: 800;
+    color: #D4860A;
+    letter-spacing: -0.02em;
+  }
+
+  .feedback-msg {
+    font-size: 14px;
+    color: #7A6E5C;
+    font-weight: 500;
+    margin-top: 4px;
+  }
+
+  /* ── Screen 4: Round Complete ── */
+
+  .round-complete-screen .screen {
+    background: #E8C870;
+  }
+
+  .complete-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 0 20px;
+  }
+
+  .stars-row {
+    display: flex;
+    gap: 10px;
+    font-size: 28px;
+    color: #A05808;
+  }
+
+  .complete-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: #1C1710;
+    letter-spacing: -0.02em;
+    text-align: center;
+  }
+
+  .complete-sub {
+    font-size: 13px;
+    color: #5A4820;
+    font-weight: 500;
+  }
+
+  .play-again-btn {
+    width: 100%;
+    background: #D4860A;
+    border: none;
+    border-radius: 14px;
+    padding: 16px;
+    color: #FFF8EE;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    margin-top: 8px;
+    box-shadow: 0 4px 16px rgba(180, 100, 0, 0.35);
+  }
+
+  .home-link {
+    font-size: 12px;
+    color: #7A5820;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  /* SVG icons */
+  .abacus-icon, .book-icon { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+
+<h1>Kid Arcade — ESP32-P4 7" Portrait — Design Mockups</h1>
+
+<div class="screens-row">
+
+  <!-- SCREEN 1: HOME -->
+  <div class="screen-wrap">
+    <div class="screen-label">01 — Home</div>
+    <div class="device">
+      <div class="screen">
+        <div class="header-bar">
+          <div></div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>47</span>
+          </div>
+        </div>
+        <div class="home-greeting">
+          <h2>Hi Dhruv!</h2>
+          <p>Ready to learn today?</p>
+        </div>
+        <div class="game-cards">
+          <div class="game-card math">
+            <svg class="card-icon" viewBox="0 0 44 44" style="color:#D4860A;">
+              <rect x="6" y="8" width="32" height="28" rx="4" class="abacus-icon"/>
+              <line x1="6" y1="20" x2="38" y2="20" class="abacus-icon"/>
+              <line x1="6" y1="28" x2="38" y2="28" class="abacus-icon"/>
+              <circle cx="14" cy="14" r="3" class="abacus-icon" fill="#D4860A"/>
+              <circle cx="22" cy="14" r="3" class="abacus-icon" fill="#D4860A"/>
+              <circle cx="14" cy="24" r="3" class="abacus-icon" fill="#D4860A"/>
+              <circle cx="30" cy="24" r="3" class="abacus-icon" fill="#D4860A"/>
+              <circle cx="22" cy="32" r="3" class="abacus-icon" fill="#D4860A"/>
+            </svg>
+            <div class="card-title">Math</div>
+            <div class="card-sub">Counting, adding,<br>skip counting</div>
+          </div>
+          <div class="game-card reading">
+            <svg class="card-icon" viewBox="0 0 44 44">
+              <path d="M8 10 Q8 8 10 8 L22 8 L22 36 L10 36 Q8 36 8 34 Z" class="book-icon"/>
+              <path d="M22 8 L34 8 Q36 8 36 10 L36 34 Q36 36 34 36 L22 36 Z" class="book-icon"/>
+              <line x1="22" y1="8" x2="22" y2="36" class="book-icon"/>
+              <line x1="12" y1="16" x2="20" y2="16" class="book-icon"/>
+              <line x1="12" y1="21" x2="20" y2="21" class="book-icon"/>
+              <line x1="24" y1="16" x2="32" y2="16" class="book-icon"/>
+              <line x1="24" y1="21" x2="32" y2="21" class="book-icon"/>
+            </svg>
+            <div class="card-title">Reading</div>
+            <div class="card-sub">Letters, words,<br>rhymes</div>
+          </div>
+        </div>
+        <div class="home-footer">
+          ★ Total: 47 stars earned
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: QUESTION -->
+  <div class="screen-wrap">
+    <div class="screen-label">02 — Question</div>
+    <div class="device">
+      <div class="screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>12</span>
+          </div>
+        </div>
+        <div class="question-zone">
+          <div class="question-label">What comes next?</div>
+          <div class="question-card">
+            <div class="question-text">
+              2,&nbsp; 4,&nbsp; 6,&nbsp;<span class="blank">&nbsp;&nbsp;</span>
+            </div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:10px;">
+          <button class="answer-btn">7</button>
+          <button class="answer-btn">8</button>
+          <button class="answer-btn">9</button>
+          <button class="answer-btn">10</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3: CORRECT FEEDBACK -->
+  <div class="screen-wrap">
+    <div class="screen-label">03 — Correct</div>
+    <div class="device">
+      <div class="screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>13</span>
+          </div>
+        </div>
+        <div class="question-zone" style="justify-content:center; align-items:center;">
+          <div class="question-label">What comes next?</div>
+          <div class="question-card" style="flex:none; width:100%; padding:12px;">
+            <div class="question-text" style="font-size:24px;">
+              2,&nbsp; 4,&nbsp; 6,&nbsp;<span style="color:#D4860A; border-bottom:3px solid #D4860A; padding:0 6px;">8</span>
+            </div>
+          </div>
+          <div class="feedback-zone" style="flex:none; padding:0;">
+            <div class="star-burst">
+              <svg viewBox="0 0 80 80">
+                <!-- rays -->
+                <g stroke="#D4860A" stroke-width="2" stroke-linecap="round" opacity="0.6">
+                  <line x1="40" y1="4" x2="40" y2="14"/>
+                  <line x1="40" y1="66" x2="40" y2="76"/>
+                  <line x1="4" y1="40" x2="14" y2="40"/>
+                  <line x1="66" y1="40" x2="76" y2="40"/>
+                  <line x1="12" y1="12" x2="19" y2="19"/>
+                  <line x1="61" y1="61" x2="68" y2="68"/>
+                  <line x1="68" y1="12" x2="61" y2="19"/>
+                  <line x1="19" y1="61" x2="12" y2="68"/>
+                </g>
+                <!-- outer ring -->
+                <circle cx="40" cy="40" r="26" fill="none" stroke="#D4860A" stroke-width="1.5" opacity="0.3"/>
+                <!-- inner ring -->
+                <circle cx="40" cy="40" r="18" fill="none" stroke="#D4860A" stroke-width="1.5" opacity="0.5"/>
+              </svg>
+              <span class="star-burst-center">★</span>
+            </div>
+            <div class="plus-one">+1</div>
+            <div class="feedback-msg">Yes! Keep going.</div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:8px;">
+          <button class="answer-btn">7</button>
+          <button class="answer-btn correct-ring">8</button>
+          <button class="answer-btn">9</button>
+          <button class="answer-btn">10</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 4: ROUND COMPLETE -->
+  <div class="screen-wrap round-complete-screen">
+    <div class="screen-label">04 — Round Complete</div>
+    <div class="device">
+      <div class="screen" style="background:#E8C870;">
+        <div class="complete-body">
+          <div class="stars-row">
+            <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+          </div>
+          <div class="complete-title">Round Complete!</div>
+          <div class="complete-sub">5 stars earned</div>
+          <button class="play-again-btn">Play Again</button>
+          <span class="home-link">Home</span>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+
+<!-- ROW 2: Reading mode screens -->
+<div class="screens-row">
+
+  <!-- SCREEN 5: MISSING LETTER -->
+  <div class="screen-wrap">
+    <div class="screen-label">05 — Missing Letter</div>
+    <div class="device">
+      <div class="screen reading-screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>12</span>
+          </div>
+        </div>
+        <div class="question-zone">
+          <div class="question-label" style="color:#1A3050;">Fill in the missing letter</div>
+          <div class="question-card" style="flex-direction:column; gap:12px;">
+            <div style="font-size:36px; font-weight:800; color:#1A3050; letter-spacing:0.12em; text-align:center;">
+              d<span style="display:inline-block; width:32px; border-bottom:3px solid #4A7FA5; margin:0 4px; vertical-align:baseline;">&nbsp;</span>g
+            </div>
+            <div style="font-size:12px; color:#4A7FA5; font-weight:600; letter-spacing:0.06em; text-align:center;">pick the missing letter</div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:10px;">
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px;">a</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px;">o</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px;">i</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px;">u</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 6: RHYME QUESTION -->
+  <div class="screen-wrap">
+    <div class="screen-label">06 — Rhyme</div>
+    <div class="device">
+      <div class="screen reading-screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>13</span>
+          </div>
+        </div>
+        <div class="question-zone">
+          <div class="question-label" style="color:#1A3050;">Which word rhymes with</div>
+          <div class="question-card" style="flex-direction:column; gap:8px;">
+            <div style="font-size:38px; font-weight:800; color:#4A7FA5; letter-spacing:-0.02em; text-align:center;">hat</div>
+            <div style="width:48px; height:2px; background:#4A7FA5; opacity:0.4; margin:0 auto; border-radius:2px;"></div>
+            <div style="font-size:11px; color:#4A7FA5; font-weight:600; letter-spacing:0.08em; text-align:center; text-transform:uppercase;">pick one</div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:10px;">
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">bat</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">dog</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">sun</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">cup</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 6b: STARTS WITH -->
+  <div class="screen-wrap">
+    <div class="screen-label">06b — Starts With</div>
+    <div class="device">
+      <div class="screen reading-screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>14</span>
+          </div>
+        </div>
+        <div class="question-zone">
+          <div class="question-label" style="color:#1A3050;">What letter does it start with?</div>
+          <div class="question-card" style="flex-direction:column; gap:10px;">
+            <div style="font-size:38px; font-weight:800; color:#1A3050; text-align:center;">fish</div>
+            <div style="display:flex; gap:6px; justify-content:center; align-items:center;">
+              <span style="font-size:11px; color:#4A7FA5; font-weight:600; letter-spacing:0.06em;">f · i · s · h</span>
+            </div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:10px;">
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px; font-weight:700;">F</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px; font-weight:700;">B</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px; font-weight:700;">D</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:22px; font-weight:700;">S</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 6c: UPPERCASE / LOWERCASE -->
+  <div class="screen-wrap">
+    <div class="screen-label">06c — Upper / Lower</div>
+    <div class="device">
+      <div class="screen reading-screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>15</span>
+          </div>
+        </div>
+        <div class="question-zone">
+          <div class="question-label" style="color:#1A3050;">Which one is lowercase?</div>
+          <div class="question-card" style="flex-direction:column; gap:8px;">
+            <div style="font-size:52px; font-weight:800; color:#4A7FA5; text-align:center; letter-spacing:0.05em;">G</div>
+            <div style="font-size:11px; color:#4A7FA5; font-weight:600; letter-spacing:0.08em; text-align:center; text-transform:uppercase;">find the small version</div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:10px;">
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:26px; font-weight:700;">G</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:26px; font-weight:700;">g</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:26px; font-weight:700;">Q</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:26px; font-weight:700;">q</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 6-CORRECT: RHYME CORRECT -->
+  <div class="screen-wrap">
+    <div class="screen-label">Rhyme — Correct</div>
+    <div class="device">
+      <div class="screen reading-screen">
+        <div class="header-bar">
+          <div class="back-btn">←</div>
+          <div class="star-count">
+            <span class="star-icon">★</span>
+            <span>14</span>
+          </div>
+        </div>
+        <div class="question-zone" style="justify-content:center; align-items:center;">
+          <div class="question-label" style="color:#1A3050;">Which word rhymes with hat?</div>
+          <div class="question-card" style="flex:none; width:100%; padding:12px; gap:4px;">
+            <div style="font-size:20px; font-weight:800; color:#1A3050; text-align:center;">
+              hat &amp; <span style="color:#4A7FA5; border-bottom:3px solid #4A7FA5; padding:0 6px;">bat</span> rhyme!
+            </div>
+          </div>
+          <div class="feedback-zone" style="flex:none; padding:0;">
+            <div class="star-burst">
+              <svg viewBox="0 0 80 80">
+                <g stroke="#4A7FA5" stroke-width="2" stroke-linecap="round" opacity="0.6">
+                  <line x1="40" y1="4" x2="40" y2="14"/><line x1="40" y1="66" x2="40" y2="76"/>
+                  <line x1="4" y1="40" x2="14" y2="40"/><line x1="66" y1="40" x2="76" y2="40"/>
+                  <line x1="12" y1="12" x2="19" y2="19"/><line x1="61" y1="61" x2="68" y2="68"/>
+                  <line x1="68" y1="12" x2="61" y2="19"/><line x1="19" y1="61" x2="12" y2="68"/>
+                </g>
+                <circle cx="40" cy="40" r="26" fill="none" stroke="#4A7FA5" stroke-width="1.5" opacity="0.3"/>
+                <circle cx="40" cy="40" r="18" fill="none" stroke="#4A7FA5" stroke-width="1.5" opacity="0.5"/>
+              </svg>
+              <span class="star-burst-center" style="color:#4A7FA5;">★</span>
+            </div>
+            <div class="plus-one" style="color:#4A7FA5;">+1</div>
+            <div class="feedback-msg">Yes! Keep going.</div>
+          </div>
+        </div>
+        <div class="answer-grid" style="margin-top:8px;">
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700; box-shadow:0 0 0 3px #4A7FA5;">bat</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">dog</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">sun</button>
+          <button class="answer-btn" style="background:#D8E8F4; color:#1A3050; font-size:18px; font-weight:700;">cup</button>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 7: READING ROUND COMPLETE -->
+  <div class="screen-wrap">
+    <div class="screen-label">07 — Reading Complete</div>
+    <div class="device">
+      <div class="screen" style="background:#E8C870;">
+        <div class="complete-body">
+          <div class="stars-row" style="color:#A05808;">
+            <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+          </div>
+          <div class="complete-title" style="color:#1C1710;">Round Complete!</div>
+          <div class="complete-sub" style="color:#5A4820;">5 stars earned</div>
+          <button class="play-again-btn" style="background:#D4860A; box-shadow:0 4px 16px rgba(180,100,0,0.35);">Play Again</button>
+          <span class="home-link" style="color:#5A4820;">Home</span>
+        </div>
+        <div class="keyboard-reserve"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p style="color:#6A5A4A; font-size:11px; text-align:center; max-width:700px; line-height:1.8;">
+  Math mode: bg #F9F5EE · surface #F0EAD6 · accent #D4860A (amber-gold)<br>
+  Reading mode: surface #E8EFF5 · accent #4A7FA5 (slate-blue) · text #1A3050<br>
+  Shared: text #1C1710 · buttons min 80px · 2×2 grid · keyboard reserve 64px
+</p>
+
+</body>
+</html>

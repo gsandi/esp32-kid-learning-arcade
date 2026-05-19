@@ -1,0 +1,50 @@
+# sdkconfig.defaults — kid_arcade ESP32-P4 (CrowPanel 7" MIPI DSI)
+#
+# Applied by ESP-IDF build system before the project's sdkconfig.
+# Only override defaults that differ from IDF's esp32p4 baseline.
+# Do NOT set values here that are board-agnostic; let IDF choose them.
+
+# ── Target ────────────────────────────────────────────────────────────────────
+CONFIG_IDF_TARGET="esp32p4"
+
+# ── Chip revision ─────────────────────────────────────────────────────────────
+# CrowPanel uses ESP32-P4 eco2 (rev 1.x) — select rev < 3 memory layout
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+# Rev < 3 max CPU is 360 MHz (not 400); explicitly select to avoid default 400
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+
+# ── PSRAM (Hex, 200 MHz) ──────────────────────────────────────────────────────
+# CrowPanel P4 uses HEX-mode PSRAM at 200 MHz (confirmed from Elecrow reference).
+# OCT/80MHz was wrong — mismatched mode causes cache writeback to hang.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_HEX=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+
+# ── L2 cache ──────────────────────────────────────────────────────────────────
+CONFIG_CACHE_L2_CACHE_128KB=y
+CONFIG_CACHE_L2_CACHE_LINE_64B=y
+
+# ── MIPI DSI ──────────────────────────────────────────────────────────────────
+# ISR handler in IRAM so it runs uninterrupted during flash cache misses.
+CONFIG_LCD_DSI_ISR_IRAM_SAFE=y
+
+# ── FreeRTOS ──────────────────────────────────────────────────────────────────
+# 1 kHz tick for smooth LVGL animation (default 100 Hz is too coarse).
+CONFIG_FREERTOS_HZ=1000
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+# Reduce log noise in production; change to DEBUG when troubleshooting.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# ── Stack sizes ───────────────────────────────────────────────────────────────
+# LVGL task needs a larger stack when drawing complex screens.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# ── LVGL fonts ────────────────────────────────────────────────────────────────
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_32=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
