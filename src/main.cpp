@@ -18,6 +18,7 @@
 #include "esp_netif.h"
 #include "esp_sntp.h"
 #include "esp_http_client.h"
+#include "esp_ota_ops.h"
 #include <time.h>
 #include <sys/time.h>
 #include <stdlib.h>
@@ -427,6 +428,10 @@ static lv_obj_t*   g_wifi_pass_ta      = NULL;
 static lv_obj_t*   g_wifi_status_lbl   = NULL;
 static lv_obj_t*   g_settings_wifi_lbl = NULL;  // updated by event handler
 static bool        g_scan_done         = false;
+
+static char        g_ota_server_ip[64] = "192.168.1.100";
+static lv_obj_t*   g_ota_status_lbl    = NULL;
+static lv_obj_t*   g_ota_ip_ta         = NULL;
 static bool        g_scanning          = false;
 static char        g_sel_ssid[64]      = "";
 static lv_obj_t*   g_wifi_list         = NULL;
@@ -445,6 +450,24 @@ static void nvs_save_stars(void) {
     nvs_handle_t h;
     if (nvs_open("learning", NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_i32(h, "stars", g_stars);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+// ── OTA server IP NVS ─────────────────────────────────────────────────────────
+static void nvs_load_ota_ip(void) {
+    nvs_handle_t h;
+    if (nvs_open("learning", NVS_READONLY, &h) == ESP_OK) {
+        size_t sz = sizeof(g_ota_server_ip);
+        nvs_get_str(h, "ota_ip", g_ota_server_ip, &sz);
+        nvs_close(h);
+    }
+}
+static void nvs_save_ota_ip(void) {
+    nvs_handle_t h;
+    if (nvs_open("learning", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_str(h, "ota_ip", g_ota_server_ip);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -823,6 +846,7 @@ static void show_feedback(void);
 static void show_round_complete(void);
 static void show_pin(void);
 static void show_admin(void);
+static void show_ota(void);
 
 // ── Common style helpers ──────────────────────────────────────────────────────
 static void style_screen(lv_obj_t* scr) {
@@ -1093,35 +1117,17 @@ static void show_home(void) {
 
     lv_obj_t* scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0D0120), 0);
-    lv_obj_set_style_bg_grad_color(scr, lv_color_hex(0x1C0848), 0);
-    lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Decorative orbs
-    lv_obj_t* orb1 = lv_obj_create(scr);
-    lv_obj_set_size(orb1, 400, 400);
-    lv_obj_set_pos(orb1, SCR_W - 180, -120);
-    lv_obj_set_style_radius(orb1, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(orb1, lv_color_hex(0x7B2FFF), 0);
-    lv_obj_set_style_bg_opa(orb1, 30, 0);
-    lv_obj_set_style_border_width(orb1, 0, 0);
-    lv_obj_set_style_shadow_width(orb1, 0, 0);
-    lv_obj_remove_flag(orb1, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(orb1, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t* orb2 = lv_obj_create(scr);
-    lv_obj_set_size(orb2, 280, 280);
-    lv_obj_set_pos(orb2, -100, 340);
-    lv_obj_set_style_radius(orb2, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(orb2, lv_color_hex(0x0044FF), 0);
-    lv_obj_set_style_bg_opa(orb2, 20, 0);
-    lv_obj_set_style_border_width(orb2, 0, 0);
-    lv_obj_set_style_shadow_width(orb2, 0, 0);
-    lv_obj_remove_flag(orb2, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(orb2, LV_OBJ_FLAG_CLICKABLE);
+    // Background photo
+    extern const lv_image_dsc_t bg_img;
+    lv_obj_t* bg = lv_image_create(scr);
+    lv_image_set_src(bg, &bg_img);
+    lv_obj_set_pos(bg, 0, 0);
+    lv_obj_remove_flag(bg, LV_OBJ_FLAG_CLICKABLE);
 
     // ── Top 20%: status bar + greeting widget (~205px) ────────────────────
     // Status bar: transparent 60px, stars left, long-press → admin
@@ -2033,6 +2039,130 @@ static void on_add50(lv_event_t* e) {
 }
 static void on_admin_home(lv_event_t* e) { show_home(); }
 
+// ── OTA task ──────────────────────────────────────────────────────────────────
+static void ota_task(void* arg) {
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:8080/firmware.bin", g_ota_server_ip);
+    ESP_LOGI(TAG, "OTA: fetching %s", url);
+
+    auto set_status = [](const char* msg) {
+        lvgl_port_lock(0);
+        if (g_ota_status_lbl) lv_label_set_text(g_ota_status_lbl, msg);
+        lvgl_port_unlock();
+    };
+
+    const esp_partition_t* update_part = esp_ota_get_next_update_partition(NULL);
+    if (!update_part) { set_status("No OTA partition found"); vTaskDelete(NULL); return; }
+
+    esp_http_client_config_t http_cfg = {};
+    http_cfg.url            = url;
+    http_cfg.timeout_ms     = 10000;
+    http_cfg.keep_alive_enable = true;
+    esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
+
+    if (esp_http_client_open(client, 0) != ESP_OK) {
+        set_status("Cannot reach server — check IP");
+        esp_http_client_cleanup(client);
+        vTaskDelete(NULL); return;
+    }
+    esp_http_client_fetch_headers(client);
+
+    esp_ota_handle_t ota_handle = 0;
+    if (esp_ota_begin(update_part, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle) != ESP_OK) {
+        set_status("OTA begin failed");
+        esp_http_client_cleanup(client);
+        vTaskDelete(NULL); return;
+    }
+
+    char* buf = (char*)malloc(4096);
+    if (!buf) { esp_ota_abort(ota_handle); esp_http_client_cleanup(client); vTaskDelete(NULL); return; }
+
+    int total = 0, rlen;
+    esp_err_t write_err = ESP_OK;
+    while ((rlen = esp_http_client_read(client, buf, 4096)) > 0) {
+        write_err = esp_ota_write(ota_handle, buf, rlen);
+        if (write_err != ESP_OK) break;
+        total += rlen;
+        char s[64];
+        snprintf(s, sizeof(s), "Downloading... %d KB", total / 1024);
+        set_status(s);
+    }
+    free(buf);
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    if (write_err != ESP_OK || total == 0) {
+        esp_ota_abort(ota_handle);
+        set_status(total == 0 ? "Empty response — wrong path?" : "OTA write failed");
+        vTaskDelete(NULL); return;
+    }
+    if (esp_ota_end(ota_handle) != ESP_OK) { set_status("OTA verify failed"); vTaskDelete(NULL); return; }
+    if (esp_ota_set_boot_partition(update_part) != ESP_OK) { set_status("Boot set failed"); vTaskDelete(NULL); return; }
+
+    set_status("Done! Rebooting in 2s...");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+    vTaskDelete(NULL);
+}
+
+static void on_ota_back(lv_event_t* e) {
+    g_ota_status_lbl = NULL;
+    g_ota_ip_ta      = NULL;
+    show_admin();
+}
+
+static void on_ota_start(lv_event_t* e) {
+    if (g_ota_ip_ta) {
+        const char* txt = lv_textarea_get_text(g_ota_ip_ta);
+        strncpy(g_ota_server_ip, txt, sizeof(g_ota_server_ip) - 1);
+        nvs_save_ota_ip();
+    }
+    if (g_ota_status_lbl) {
+        lvgl_port_lock(0);
+        lv_label_set_text(g_ota_status_lbl, "Connecting...");
+        lvgl_port_unlock();
+    }
+    xTaskCreate(ota_task, "ota_task", 8192, NULL, 5, NULL);
+}
+
+static void show_ota(void) {
+    lvgl_port_lock(0);
+
+    lv_obj_t* scr = lv_obj_create(NULL);
+    style_screen(scr);
+
+    lv_obj_t* hdr = make_header(scr, 88);
+    lv_obj_t* ttl = make_label(hdr, "OTA Update", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_center(ttl);
+
+    lv_obj_t* col = make_col(scr, SCR_W - 60, 340, 20);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 104);
+
+    make_label(col, "Server IP:", &lv_font_montserrat_28, C_SUBTEXT);
+
+    g_ota_ip_ta = lv_textarea_create(col);
+    lv_obj_set_size(g_ota_ip_ta, SCR_W - 90, 80);
+    lv_textarea_set_one_line(g_ota_ip_ta, true);
+    lv_textarea_set_text(g_ota_ip_ta, g_ota_server_ip);
+    lv_obj_set_style_text_font(g_ota_ip_ta, &lv_font_montserrat_28, 0);
+
+    g_ota_status_lbl = make_label(col, "Ready", &lv_font_montserrat_28, C_SUBTEXT);
+    lv_obj_set_style_text_align(g_ota_status_lbl, LV_TEXT_ALIGN_CENTER, 0);
+
+    make_btn(col, "Start OTA", SCR_W - 90, 100, C_CORRECT, on_ota_start, NULL);
+    make_btn(col, "Back",      SCR_W - 90, 90,  C_BTN,     on_ota_back,  NULL);
+
+    lv_obj_t* kb = lv_keyboard_create(scr);
+    lv_keyboard_set_textarea(kb, g_ota_ip_ta);
+    lv_obj_set_size(kb, SCR_W, 320);
+    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_text_font(kb, &lv_font_montserrat_28, 0);
+
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lvgl_port_unlock();
+}
+
+// ── Admin panel ───────────────────────────────────────────────────────────────
 static void show_admin(void) {
     lvgl_port_lock(0);
 
@@ -2062,6 +2192,13 @@ static void show_admin(void) {
              on_add50, NULL);
     make_btn(col, "Reset Stars", SCR_W - 90, 110, C_DANGER,
              on_reset_stars, NULL);
+
+    char ota_lbl[80];
+    snprintf(ota_lbl, sizeof(ota_lbl), "OTA: %s", g_ota_server_ip);
+    make_label(col, ota_lbl, &lv_font_montserrat_28, C_SUBTEXT);
+    make_btn(col, "OTA Update", SCR_W - 90, 90, C_BTN_ALT,
+             [](lv_event_t*) { show_ota(); }, NULL);
+
     make_btn(col, "Home", SCR_W - 90, 90, C_BTN,
              on_admin_home, NULL);
 
@@ -2134,6 +2271,7 @@ extern "C" void app_main(void) {
         nvs_flash_init();
     }
     nvs_load_stars();
+    nvs_load_ota_ip();
     wifi_creds_load();
     brightness_load();
     brightness_init();    // LEDC PWM backlight, duty 0 until display is up
