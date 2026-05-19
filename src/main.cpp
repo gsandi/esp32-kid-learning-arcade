@@ -1989,6 +1989,13 @@ static void slave_ota_check_and_run(void) {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "slave_fw");
     if (!part) { ESP_LOGW(TAG, "slave_fw partition missing — skipping C6 OTA"); return; }
 
+    // Skip if partition is blank (C6 firmware not yet written to flash)
+    uint8_t magic[4] = {};
+    if (esp_partition_read(part, 0, magic, 4) != ESP_OK || magic[0] == 0xFF) {
+        ESP_LOGW(TAG, "slave_fw partition empty — skipping C6 OTA");
+        return;
+    }
+
     esp_hosted_init();
     if (esp_hosted_connect_to_slave() == 0) {
         esp_hosted_coprocessor_fwver_t ver = {};

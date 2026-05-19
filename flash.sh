@@ -27,6 +27,7 @@ python -m esptool \
   --before default-reset \
   --after hard-reset \
   write_flash \
+  --force \
   "$SLAVE_FW_OFFSET" "$C6_FW"
 
 echo ""

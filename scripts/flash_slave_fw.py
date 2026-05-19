@@ -37,6 +37,7 @@ def flash_slave_fw(source, target, env):
         "-b",
         "460800",
         "write_flash",
+        "--force",  # C6 image header; P4 just stores it as data
         "0x10000",  # slave_fw partition offset
         fw,
     ]
