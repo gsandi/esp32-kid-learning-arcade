@@ -28,6 +28,9 @@
 #include "esp_lcd_ek79007.h"
 #include "esp_lcd_touch_gt911.h"
 #include "esp_lvgl_port.h"
+#include "esp_partition.h"
+#include "esp_hosted.h"
+#include "esp_hosted_ota.h"
 
 #define TAG "kid_arcade"
 
@@ -1277,17 +1280,35 @@ static const char* signal_str(int rssi) {
     return "Weak";
 }
 
+static uint32_t g_scan_start_ms = 0;
+#define SCAN_TIMEOUT_MS 12000
+
 static void wifi_do_scan(void) {
     if (g_scanning) return;
     g_scan_done = false;
     g_scanning  = true;
+    g_scan_start_ms = lv_tick_get();
     wifi_scan_config_t sc = {};
     sc.show_hidden = false;
-    esp_wifi_scan_start(&sc, false);
+    esp_err_t err = esp_wifi_scan_start(&sc, false);
+    if (err != ESP_OK) {
+        g_scanning = false;
+        if (g_wifi_scan_lbl)
+            lv_label_set_text(g_wifi_scan_lbl, "Scan failed — WiFi not ready.\nCheck C6 slave firmware.");
+    }
 }
 
 static void on_scan_poll(lv_timer_t* t) {
-    if (!g_scan_done) return;
+    if (!g_scan_done) {
+        if ((lv_tick_get() - g_scan_start_ms) > SCAN_TIMEOUT_MS) {
+            lv_timer_delete(t);
+            g_scan_poll_timer = NULL;
+            g_scanning = false;
+            if (g_wifi_scan_lbl)
+                lv_label_set_text(g_wifi_scan_lbl, "Scan timed out.\nC6 slave firmware may be missing.\nTap Scan to retry.");
+        }
+        return;
+    }
     lv_timer_delete(t);
     g_scan_poll_timer = NULL;
 
@@ -1890,6 +1911,43 @@ static void enable_dsi_phy_power(void) {
     ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &phy_pwr_chan));
 }
 
+// ── C6 slave OTA ──────────────────────────────────────────────────────────────
+static void slave_ota_check_and_run(void) {
+    const esp_partition_t* part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "slave_fw");
+    if (!part) { ESP_LOGW(TAG, "slave_fw partition missing — skipping C6 OTA"); return; }
+
+    esp_hosted_init();
+    if (esp_hosted_connect_to_slave() == 0) {
+        esp_hosted_coprocessor_fwver_t ver = {};
+        esp_hosted_get_coprocessor_fwversion(&ver);
+        if (ver.major1 == 2 && ver.minor1 == 9 && ver.patch1 == 3) {
+            ESP_LOGI(TAG, "C6 fw 2.9.3 current — skip OTA"); return;
+        }
+    }
+
+    ESP_LOGI(TAG, "Flashing C6 slave fw...");
+    uint8_t buf[4096];
+    size_t offset = 0;
+    esp_hosted_slave_ota_begin();
+    while (offset < part->size) {
+        size_t n = sizeof(buf);
+        if (offset + n > part->size) n = part->size - offset;
+        if (esp_partition_read(part, offset, buf, n) != ESP_OK) break;
+        if (offset > 0 && buf[0] == 0xFF) break;  // past end of image
+        esp_hosted_slave_ota_write(buf, (uint32_t)n);
+        offset += n;
+    }
+    if (esp_hosted_slave_ota_end() == ESP_OK) {
+        esp_hosted_slave_ota_activate();
+        ESP_LOGI(TAG, "C6 OTA done — restarting");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        esp_restart();
+    } else {
+        ESP_LOGW(TAG, "C6 OTA failed — continuing without slave fw");
+    }
+}
+
 // ── app_main ──────────────────────────────────────────────────────────────────
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "kid_arcade ESP32-P4 starting");
@@ -2019,6 +2077,7 @@ extern "C" void app_main(void) {
     set_brightness(g_brightness);
     ESP_LOGI(TAG, "Display up — launching game");
 
+    slave_ota_check_and_run();
     wifi_init();
 
     show_home();
