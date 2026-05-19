@@ -9,12 +9,36 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.5.3
+  espressif/eppp_link:
+    dependencies: []
+    source:
+      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/espressif__eppp_link
+      type: local
+    version: 1.1.5
+  espressif/esp_hosted:
+    dependencies: []
+    source:
+      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/espressif__esp_hosted
+      type: local
+    version: 2.9.3
   espressif/esp_lcd_touch:
     dependencies: []
     source:
-      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/espressif__esp_lcd_touch
+      path: /Users/sandi/workspace/startup/7inch_9inch_10inch_P4_HMI_AI/managed_components/espressif__esp_lcd_touch
       type: local
     version: 1.2.1
+  espressif/esp_serial_slave_link:
+    dependencies: []
+    source:
+      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/espressif__esp_serial_slave_link
+      type: local
+    version: 1.1.2
+  espressif/wifi_remote_over_eppp:
+    dependencies: []
+    source:
+      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/espressif__wifi_remote_over_eppp
+      type: local
+    version: 0.3.2
   idf:
     source:
       type: idf
@@ -22,14 +46,18 @@ dependencies:
   lvgl/lvgl:
     dependencies: []
     source:
-      path: /Users/sandi/workspace/startup/kid_arcade/managed_components/lvgl__lvgl
+      path: /Users/sandi/workspace/startup/7inch_9inch_10inch_P4_HMI_AI/managed_components/lvgl__lvgl
       type: local
     version: 9.3.0
 direct_dependencies:
 - espressif/cmake_utilities
+- espressif/eppp_link
+- espressif/esp_hosted
 - espressif/esp_lcd_touch
+- espressif/esp_serial_slave_link
+- espressif/wifi_remote_over_eppp
 - idf
 - lvgl/lvgl
-manifest_hash: 11ddf72b3fc90533ffb8cf2555393177480668c7b269478a0e02f9c2c8c771ed
+manifest_hash: d7cd64cdbfc200bc6c3c0592597ef756c5b669aea2a8d15ca61b050a24983509
 target: esp32p4
 version: 2.0.0

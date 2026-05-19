@@ -10,6 +10,11 @@ list(APPEND EXTRA_COMPONENT_DIRS
     ${ELECROW_MC}/espressif__esp_lcd_touch_gt911
     ${ELECROW_MC}/espressif__esp_lvgl_port
     ${ELECROW_MC}/lvgl__lvgl
+    ${CMAKE_SOURCE_DIR}/managed_components/espressif__esp_wifi_remote
+    ${CMAKE_SOURCE_DIR}/managed_components/espressif__esp_hosted
+    ${CMAKE_SOURCE_DIR}/managed_components/espressif__eppp_link
+    ${CMAKE_SOURCE_DIR}/managed_components/espressif__wifi_remote_over_eppp
+    ${CMAKE_SOURCE_DIR}/managed_components/espressif__esp_serial_slave_link
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

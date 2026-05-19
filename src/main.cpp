@@ -425,6 +425,7 @@ static lv_timer_t* g_home_timer        = NULL;
 static lv_obj_t*   g_wifi_kb           = NULL;
 static lv_obj_t*   g_wifi_pass_ta      = NULL;
 static lv_obj_t*   g_wifi_status_lbl   = NULL;
+static lv_obj_t*   g_settings_wifi_lbl = NULL;  // updated by event handler
 static bool        g_scan_done         = false;
 static bool        g_scanning          = false;
 static char        g_sel_ssid[64]      = "";
@@ -552,6 +553,12 @@ static void wifi_event_handler(void* arg, esp_event_base_t base,
         } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             g_wifi_connected = false;
             if (g_wifi_ssid[0]) esp_wifi_connect();
+            if (g_settings_wifi_lbl) {
+                lvgl_port_lock(0);
+                lv_label_set_text(g_settings_wifi_lbl, "Not connected");
+                lv_obj_set_style_text_color(g_settings_wifi_lbl, lv_color_hex(C_SUBTEXT), 0);
+                lvgl_port_unlock();
+            }
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         g_wifi_connected = true;
@@ -568,11 +575,18 @@ static void wifi_event_handler(void* arg, esp_event_base_t base,
             g_weather_fetching = true;
             xTaskCreate(weather_task, "weather", 8192, NULL, 5, NULL);
         }
-        // Update WiFi status label if screen is open
         if (g_wifi_status_lbl) {
             lvgl_port_lock(0);
             lv_label_set_text(g_wifi_status_lbl, "Connected!");
             lv_obj_set_style_text_color(g_wifi_status_lbl, lv_color_hex(C_CORRECT), 0);
+            lvgl_port_unlock();
+        }
+        if (g_settings_wifi_lbl) {
+            lvgl_port_lock(0);
+            char buf[80];
+            snprintf(buf, sizeof(buf), "Connected  \xE2\x80\x94  %s", g_wifi_ssid);
+            lv_label_set_text(g_settings_wifi_lbl, buf);
+            lv_obj_set_style_text_color(g_settings_wifi_lbl, lv_color_hex(C_CORRECT), 0);
             lvgl_port_unlock();
         }
     }
@@ -976,7 +990,7 @@ static void add_home_button(lv_obj_t* scr) {
 // ── SCREEN: HOME ─────────────────────────────────────────────────────────────
 static void on_launch_arcade(lv_event_t* e) { launch_arcade(); }
 static void on_launch_settings(lv_event_t* e) { launch_settings(); }
-static void on_launch_wifi(lv_event_t* e) { launch_wifi(); }
+
 
 static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
                                 const char* name, uint32_t bg, uint32_t bg_dk,
@@ -1153,20 +1167,17 @@ static void show_home(void) {
     lv_obj_set_style_opa(g_home_weather_lbl, LV_OPA_60, 0);
     lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_MID, 0, 182);
 
-    // ── Bottom app row: 3 tiles pinned to bottom ──────────────────────────
-    const int TILE_W = 170, TILE_H = 175, TILE_GAP = 22;
+    // ── Bottom app row: 2 tiles pinned to bottom ──────────────────────────
+    const int TILE_W = 190, TILE_H = 175, TILE_GAP = 32;
     const int ROW_Y  = SCR_H - TILE_H - 48;
-    const int ROW_X  = (SCR_W - (TILE_W * 3 + TILE_GAP * 2)) / 2;
+    const int ROW_X  = (SCR_W - (TILE_W * 2 + TILE_GAP)) / 2;
 
     make_app_tile(scr, "A", "Arcade",
                   C_MATH, C_MATH_DK,
                   ROW_X, ROW_Y, TILE_W, TILE_H, on_launch_arcade);
-    make_app_tile(scr, "W", "WiFi",
-                  0x005FAD, 0x003D73,
-                  ROW_X + TILE_W + TILE_GAP, ROW_Y, TILE_W, TILE_H, on_launch_wifi);
     make_app_tile(scr, "S", "Settings",
                   C_BTN_ALT, 0x4A339A,
-                  ROW_X + (TILE_W + TILE_GAP) * 2, ROW_Y, TILE_W, TILE_H, on_launch_settings);
+                  ROW_X + TILE_W + TILE_GAP, ROW_Y, TILE_W, TILE_H, on_launch_settings);
 
     g_home_timer = lv_timer_create(home_clock_cb, 1000, NULL);
 
@@ -1216,6 +1227,8 @@ static void launch_arcade(void) {
 static void launch_settings(void) {
     lvgl_port_lock(0);
 
+    g_settings_wifi_lbl = NULL;
+
     lv_obj_t* scr = lv_obj_create(NULL);
     style_screen(scr);
 
@@ -1239,17 +1252,76 @@ static void launch_settings(void) {
     lv_obj_t* hl2 = make_label(hdr, "Settings", &lv_font_montserrat_32, C_GOLD);
     lv_obj_align(hl2, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t* col = make_col(scr, SCR_W - 40, SCR_H - 88, 34);
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 88);
+    lv_obj_t* col = make_col(scr, SCR_W - 40, SCR_H - 88, 28);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 100);
 
-    lv_obj_t* br_lbl = make_label(col, "Brightness",
-                                  &lv_font_montserrat_32, C_CARD_TXT);
+    // ── WiFi row ──────────────────────────────────────────────────────────
+    lv_obj_t* wifi_row = lv_obj_create(col);
+    lv_obj_set_size(wifi_row, SCR_W - 48, 96);
+    lv_obj_set_style_bg_color(wifi_row, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_opa(wifi_row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(wifi_row, 18, 0);
+    lv_obj_set_style_border_width(wifi_row, 0, 0);
+    lv_obj_set_style_shadow_width(wifi_row, 0, 0);
+    lv_obj_set_style_pad_left(wifi_row, 20, 0);
+    lv_obj_set_style_pad_right(wifi_row, 20, 0);
+    lv_obj_clear_flag(wifi_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    // WiFi icon + label on left
+    lv_obj_t* wifi_icon = lv_label_create(wifi_row);
+    lv_label_set_text(wifi_icon, "W");
+    lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0x5BB8F5), 0);
+    lv_obj_align(wifi_icon, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t* wifi_title = lv_label_create(wifi_row);
+    lv_label_set_text(wifi_title, "Wi-Fi");
+    lv_obj_set_style_text_font(wifi_title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(wifi_title, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_align(wifi_title, LV_ALIGN_LEFT_MID, 36, -14);
+
+    // Status line — updates live via g_settings_wifi_lbl
+    char wifi_status_buf[96];
+    if (g_wifi_connected && g_wifi_ssid[0])
+        snprintf(wifi_status_buf, sizeof(wifi_status_buf), "Connected  \xE2\x80\x94  %s", g_wifi_ssid);
+    else if (g_wifi_ssid[0])
+        snprintf(wifi_status_buf, sizeof(wifi_status_buf), "Saved: %s", g_wifi_ssid);
+    else
+        snprintf(wifi_status_buf, sizeof(wifi_status_buf), "Not connected");
+
+    g_settings_wifi_lbl = lv_label_create(wifi_row);
+    lv_label_set_text(g_settings_wifi_lbl, wifi_status_buf);
+    lv_obj_set_style_text_font(g_settings_wifi_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(g_settings_wifi_lbl,
+        lv_color_hex(g_wifi_connected ? C_CORRECT : C_SUBTEXT), 0);
+    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 36, 14);
+
+    // Change button on right
+    lv_obj_t* chg_btn = lv_button_create(wifi_row);
+    lv_obj_set_size(chg_btn, 100, 52);
+    lv_obj_align(chg_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x005FAD), 0);
+    lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(chg_btn, 12, 0);
+    lv_obj_set_style_border_width(chg_btn, 0, 0);
+    lv_obj_set_style_shadow_width(chg_btn, 0, 0);
+    lv_obj_t* chg_lbl = lv_label_create(chg_btn);
+    lv_label_set_text(chg_lbl, g_wifi_connected ? "Change" : "Connect");
+    lv_obj_set_style_text_font(chg_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(chg_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(chg_lbl);
+    lv_obj_add_event_cb(chg_btn, [](lv_event_t*) {
+        g_settings_wifi_lbl = NULL;
+        launch_wifi();
+    }, LV_EVENT_CLICKED, NULL);
+
+    // ── Brightness ────────────────────────────────────────────────────────
+    lv_obj_t* br_lbl = make_label(col, "Brightness", &lv_font_montserrat_28, C_CARD_TXT);
     lv_obj_set_style_text_align(br_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     char br_buf[24];
     snprintf(br_buf, sizeof(br_buf), "%d%%", (int)g_brightness);
-    lv_obj_t* br_val = make_label(col, br_buf,
-                                  &lv_font_montserrat_48, C_STAR);
+    lv_obj_t* br_val = make_label(col, br_buf, &lv_font_montserrat_48, C_STAR);
     lv_obj_set_style_text_align(br_val, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t* sld = lv_slider_create(col);
@@ -1547,7 +1619,7 @@ static void on_answer(lv_event_t* e) {
     }
     show_feedback();
 }
-static void on_back_to_launcher(lv_event_t* e) { show_home(); }
+static void on_back_to_launcher(lv_event_t* e) { g_settings_wifi_lbl = NULL; show_home(); }
 
 static void show_question(void) {
     const char* game_name = (g_game == 0) ? "Math" : "Reading";

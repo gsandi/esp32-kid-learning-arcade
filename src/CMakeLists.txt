@@ -15,4 +15,9 @@ idf_component_register(SRCS ${app_sources}
         esp_driver_i2c
         esp_hw_support
         driver
+        esp_wifi
+        esp_event
+        esp_netif
+        lwip
+        esp_http_client
 )
