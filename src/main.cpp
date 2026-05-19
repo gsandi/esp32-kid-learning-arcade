@@ -643,20 +643,24 @@ static void on_launch_arcade(lv_event_t* e) { launch_arcade(); }
 static void on_launch_settings(lv_event_t* e) { launch_settings(); }
 
 static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
-                                const char* name, uint32_t bg,
+                                const char* name, uint32_t bg, uint32_t bg_dk,
                                 int x, int y, int w, int h,
                                 lv_event_cb_t cb) {
     lv_obj_t* t = lv_obj_create(parent);
     lv_obj_set_size(t, w, h);
     lv_obj_set_pos(t, x, y);
     lv_obj_set_style_bg_color(t, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_grad_color(t, lv_color_hex(bg_dk), 0);
+    lv_obj_set_style_bg_grad_dir(t, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(t, 28, 0);
-    lv_obj_set_style_border_width(t, 0, 0);
-    lv_obj_set_style_shadow_width(t, 24, 0);
+    lv_obj_set_style_radius(t, 32, 0);
+    lv_obj_set_style_border_width(t, 1, 0);
+    lv_obj_set_style_border_color(t, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(t, 38, 0);
+    lv_obj_set_style_shadow_width(t, 36, 0);
     lv_obj_set_style_shadow_color(t, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(t, 100, 0);
-    lv_obj_set_style_shadow_ofs_y(t, 8, 0);
+    lv_obj_set_style_shadow_opa(t, 140, 0);
+    lv_obj_set_style_shadow_ofs_y(t, 14, 0);
     lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(t, cb, LV_EVENT_CLICKED, NULL);
@@ -736,10 +740,49 @@ static void show_home(void) {
     lvgl_port_lock(0);
 
     lv_obj_t* scr = lv_obj_create(NULL);
-    style_screen(scr);
+    // Deep gradient background — not flat, has atmosphere
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0D0120), 0);
+    lv_obj_set_style_bg_grad_color(scr, lv_color_hex(0x1C0848), 0);
+    lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Status bar: stars left, title center, long-press → admin PIN
-    lv_obj_t* hdr = make_header(scr, 100);
+    // Decorative orbs — created first so they sit behind all content
+    lv_obj_t* orb1 = lv_obj_create(scr);
+    lv_obj_set_size(orb1, 400, 400);
+    lv_obj_set_pos(orb1, SCR_W - 160, -140);
+    lv_obj_set_style_radius(orb1, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(orb1, lv_color_hex(0x7B2FFF), 0);
+    lv_obj_set_style_bg_opa(orb1, 28, 0);
+    lv_obj_set_style_border_width(orb1, 0, 0);
+    lv_obj_set_style_shadow_width(orb1, 0, 0);
+    lv_obj_remove_flag(orb1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(orb1, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* orb2 = lv_obj_create(scr);
+    lv_obj_set_size(orb2, 320, 320);
+    lv_obj_set_pos(orb2, -110, SCR_H - 240);
+    lv_obj_set_style_radius(orb2, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(orb2, lv_color_hex(0x0044FF), 0);
+    lv_obj_set_style_bg_opa(orb2, 22, 0);
+    lv_obj_set_style_border_width(orb2, 0, 0);
+    lv_obj_set_style_shadow_width(orb2, 0, 0);
+    lv_obj_remove_flag(orb2, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(orb2, LV_OBJ_FLAG_CLICKABLE);
+
+    // Status bar: transparent — floats over gradient, long-press → admin PIN
+    lv_obj_t* hdr = lv_obj_create(scr);
+    lv_obj_set_size(hdr, SCR_W, 100);
+    lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(hdr, 1, 0);
+    lv_obj_set_style_border_color(hdr, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(hdr, 18, 0);
+    lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(hdr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(hdr, on_launcher_longpress, LV_EVENT_LONG_PRESSED, NULL);
 
@@ -751,10 +794,11 @@ static void show_home(void) {
     lv_obj_t* ttl = make_label(hdr, "Kid Arcade", &lv_font_montserrat_32, C_GOLD);
     lv_obj_align(ttl, LV_ALIGN_CENTER, 0, 0);
 
-    // App grid: 2 tiles side by side, centered below the status bar
-    const int TILE_W = 250, TILE_H = 290, TILE_GAP = 30;
+    // App grid: 2 tiles side by side, vertically centered in available space
+    const int TILE_W = 260, TILE_H = 300, TILE_GAP = 28;
     const int GRID_W  = TILE_W * 2 + TILE_GAP;
-    const int GRID_Y  = 100 + 80;
+    const int CONTENT_H = SCR_H - 100;
+    const int GRID_Y  = 100 + (CONTENT_H - TILE_H) / 3;  // upper-third of content
 
     lv_obj_t* grid = lv_obj_create(scr);
     lv_obj_set_size(grid, GRID_W, TILE_H);
@@ -765,11 +809,11 @@ static void show_home(void) {
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
 
     make_app_tile(grid, "A", "Arcade",
-                  C_MATH, 0, 0, TILE_W, TILE_H, on_launch_arcade);
+                  C_MATH, C_MATH_DK, 0, 0, TILE_W, TILE_H, on_launch_arcade);
     make_app_tile(grid, "S", "Settings",
-                  C_BTN_ALT, TILE_W + TILE_GAP, 0, TILE_W, TILE_H, on_launch_settings);
+                  C_BTN_ALT, 0x4A339A, TILE_W + TILE_GAP, 0, TILE_W, TILE_H, on_launch_settings);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     lvgl_port_unlock();
 }
 
