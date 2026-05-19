@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/ledc.h"
 #include "esp_ldo_regulator.h"
 #include "esp_random.h"
 #include "nvs_flash.h"
@@ -34,6 +35,16 @@
 #define TOUCH_GPIO_INT  GPIO_NUM_42
 #define TOUCH_I2C_SDA   GPIO_NUM_45
 #define TOUCH_I2C_SCL   GPIO_NUM_46
+
+// ââ Backlight LEDC PWM ââ
+#define BL_LEDC_TIMER     LEDC_TIMER_0
+#define BL_LEDC_MODE      LEDC_LOW_SPEED_MODE
+#define BL_LEDC_CHANNEL   LEDC_CHANNEL_0
+#define BL_LEDC_RES       LEDC_TIMER_10_BIT   // 0..1023
+#define BL_LEDC_FREQ_HZ   25000
+#define BL_DUTY_MAX       1023
+#define BRIGHTNESS_MIN    10
+#define BRIGHTNESS_DEF    75
 
 // ── Game config ───────────────────────────────────────────────────────────────
 #define QUESTIONS_PER_ROUND 5
@@ -258,6 +269,59 @@ static void nvs_save_stars(void) {
         nvs_commit(h);
         nvs_close(h);
     }
+}
+
+// Brightness (LEDC PWM backlight)
+static uint8_t g_brightness = BRIGHTNESS_DEF;  // 0-100 (clamped >= BRIGHTNESS_MIN)
+
+static void set_brightness(uint8_t pct) {
+    if (pct > 100) pct = 100;
+    if (pct < BRIGHTNESS_MIN) pct = BRIGHTNESS_MIN;
+    g_brightness = pct;
+    uint32_t duty = ((uint32_t)BL_DUTY_MAX * pct) / 100;
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
+}
+
+static void brightness_init(void) {
+    ledc_timer_config_t tcfg = {};
+    tcfg.speed_mode      = BL_LEDC_MODE;
+    tcfg.duty_resolution = BL_LEDC_RES;
+    tcfg.timer_num       = BL_LEDC_TIMER;
+    tcfg.freq_hz         = BL_LEDC_FREQ_HZ;
+    tcfg.clk_cfg         = LEDC_AUTO_CLK;
+    ESP_ERROR_CHECK(ledc_timer_config(&tcfg));
+
+    ledc_channel_config_t ccfg = {};
+    ccfg.gpio_num   = DISPLAY_BACKLIGHT_PIN;
+    ccfg.speed_mode = BL_LEDC_MODE;
+    ccfg.channel    = BL_LEDC_CHANNEL;
+    ccfg.timer_sel  = BL_LEDC_TIMER;
+    ccfg.intr_type  = LEDC_INTR_DISABLE;
+    ccfg.duty       = 0;   // start dark; ramp up after display init
+    ccfg.hpoint     = 0;
+    ESP_ERROR_CHECK(ledc_channel_config(&ccfg));
+}
+
+static void brightness_save(void) {
+    nvs_handle_t h;
+    if (nvs_open("learning", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "brightness", g_brightness);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+static void brightness_load(void) {
+    uint8_t v = BRIGHTNESS_DEF;
+    nvs_handle_t h;
+    if (nvs_open("learning", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "brightness", &v);   // leaves v unchanged if key absent
+        nvs_close(h);
+    }
+    if (v > 100) v = 100;
+    if (v < BRIGHTNESS_MIN) v = BRIGHTNESS_MIN;
+    g_brightness = v;
 }
 
 // ── Random helper ─────────────────────────────────────────────────────────────
@@ -549,6 +613,29 @@ static void draw_dots(lv_obj_t* parent, int count) {
     }
 }
 
+// Bottom-center semi-transparent "Home" button for in-game screens.
+// ~120x50px, soft so it never competes with answer buttons; taps -> launcher.
+static void on_back_to_launcher(lv_event_t* e);
+static void add_home_button(lv_obj_t* scr) {
+    lv_obj_t* hb = lv_button_create(scr);
+    lv_obj_set_size(hb, 120, 50);
+    lv_obj_align(hb, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_style_bg_color(hb, lv_color_hex(C_BTN), 0);
+    lv_obj_set_style_bg_opa(hb, LV_OPA_40, 0);
+    lv_obj_set_style_bg_color(hb, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(hb, LV_OPA_70, LV_STATE_PRESSED);
+    lv_obj_set_style_radius(hb, 16, 0);
+    lv_obj_set_style_border_width(hb, 0, 0);
+    lv_obj_set_style_shadow_width(hb, 0, 0);
+    lv_obj_t* hl = lv_label_create(hb);
+    lv_label_set_text(hl, "Home");
+    lv_obj_set_style_text_font(hl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(hl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_set_style_text_opa(hl, LV_OPA_80, 0);
+    lv_obj_center(hl);
+    lv_obj_add_event_cb(hb, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
+}
+
 // ── SCREEN: LAUNCHER ─────────────────────────────────────────────────────────
 static void on_math_tap(lv_event_t* e) {
     g_game = 0;
@@ -562,6 +649,20 @@ static void on_read_tap(lv_event_t* e) {
     prepare_question();
     show_question();
 }
+// Live brightness drag; persist to NVS when the gesture settles (RELEASED).
+static void on_brightness_slider(lv_event_t* e) {
+    lv_obj_t* sld   = (lv_obj_t*)lv_event_get_target(e);
+    lv_obj_t* vlbl  = (lv_obj_t*)lv_event_get_user_data(e);
+    int v = lv_slider_get_value(sld);
+    set_brightness((uint8_t)v);
+    if (vlbl) {
+        char b[24];
+        snprintf(b, sizeof(b), "%d%%", (int)g_brightness);
+        lv_label_set_text(vlbl, b);
+    }
+    brightness_save();
+}
+
 static void on_launcher_longpress(lv_event_t* e) {
     g_pin_len = 0;
     g_pin_buf[0] = '\0';
@@ -621,18 +722,64 @@ static void show_launcher(void) {
                                     &lv_font_montserrat_28, C_STAR);
     lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 28, 22);
 
-    lv_obj_t* tap_hint = make_label(hdr, "Pick a game",
+    lv_obj_t* tap_hint = make_label(hdr, "Pick a game  >  Settings",
                                     &lv_font_montserrat_24, C_SUBTEXT);
     lv_obj_align(tap_hint, LV_ALIGN_RIGHT_MID, -28, 0);
 
-    // Two big game cards stacked in a flex column below the header.
-    lv_obj_t* col = make_col(scr, SCR_W, SCR_H - 110, 36);
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 110);
+    // Tileview below the header: tile 0 = games (home), tile 1 = settings.
+    lv_obj_t* tv = lv_tileview_create(scr);
+    lv_obj_set_size(tv, SCR_W, SCR_H - 110);
+    lv_obj_align(tv, LV_ALIGN_TOP_MID, 0, 110);
+    lv_obj_set_style_bg_opa(tv, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(tv, 0, 0);
+    lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
+
+    // Tile (0,0) = games (home), tile (1,0) = settings. Horizontal swipe.
+    lv_obj_t* tile_home = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
+    lv_obj_t* tile_set  = lv_tileview_add_tile(tv, 1, 0, LV_DIR_LEFT);
+    lv_obj_set_style_bg_opa(tile_home, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(tile_set,  LV_OPA_TRANSP, 0);
+
+    lv_obj_t* col = make_col(tile_home, SCR_W, SCR_H - 110, 36);
+    lv_obj_center(col);
 
     make_game_card(col, "MATH", "Count   Add   Skip   Multiply",
                    C_MATH, on_math_tap);
     make_game_card(col, "READING", "Letters   Words   Rhymes",
                    C_READ, on_read_tap);
+
+    // ── Settings tile: brightness slider ─────────────────────────────────────
+    lv_obj_t* set_col = make_col(tile_set, SCR_W - 40, SCR_H - 110, 34);
+    lv_obj_center(set_col);
+
+    lv_obj_t* set_ttl = make_label(set_col, "Settings",
+                                   &lv_font_montserrat_48, C_GOLD);
+    lv_obj_set_style_text_align(set_ttl, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_obj_t* br_lbl = make_label(set_col, "Brightness",
+                                  &lv_font_montserrat_32, C_CARD_TXT);
+    lv_obj_set_style_text_align(br_lbl, LV_TEXT_ALIGN_CENTER, 0);
+
+    char br_buf[24];
+    snprintf(br_buf, sizeof(br_buf), "%d%%", (int)g_brightness);
+    lv_obj_t* br_val = make_label(set_col, br_buf,
+                                  &lv_font_montserrat_48, C_STAR);
+    lv_obj_set_style_text_align(br_val, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_obj_t* sld = lv_slider_create(set_col);
+    lv_obj_set_size(sld, SCR_W - 120, 40);
+    lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
+    lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(sld, lv_color_hex(C_BTN), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sld, lv_color_hex(C_GOLD), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(sld, lv_color_hex(C_STAR), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(sld, 10, LV_PART_KNOB);
+    lv_obj_add_event_cb(sld, on_brightness_slider,
+                        LV_EVENT_VALUE_CHANGED, br_val);
+
+    lv_obj_t* sw_hint = make_label(set_col, "<  Swipe back to games",
+                                   &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_set_style_text_align(sw_hint, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 250, 0, true);
     lvgl_port_unlock();
@@ -746,6 +893,8 @@ static void show_question(void) {
                             (void*)(intptr_t)i);
     }
 
+    add_home_button(scr);
+
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
     lvgl_port_unlock();
 }
@@ -810,6 +959,8 @@ static void show_feedback(void) {
 
     make_btn(col, g_last_correct ? "Next" : "Try Again",
              360, 110, btn_clr, on_next_question, NULL);
+
+    add_home_button(scr);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, true);
     lvgl_port_unlock();
@@ -1020,10 +1171,10 @@ extern "C" void app_main(void) {
         nvs_flash_init();
     }
     nvs_load_stars();
+    brightness_load();
+    brightness_init();    // LEDC PWM backlight, duty 0 until display is up
 
-    // Backlight off during init
-    gpio_set_direction(DISPLAY_BACKLIGHT_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_level(DISPLAY_BACKLIGHT_PIN, 0);
+    // (backlight handled by LEDC; configured before display init)
 
     enable_dsi_phy_power();
 
@@ -1133,8 +1284,8 @@ extern "C" void app_main(void) {
     touch_cfg.handle = tp;
     lvgl_port_add_touch(&touch_cfg);
 
-    // Backlight on
-    gpio_set_level(DISPLAY_BACKLIGHT_PIN, 1);
+    // Backlight on — ramp to saved brightness now that the panel is live.
+    set_brightness(g_brightness);
     ESP_LOGI(TAG, "Display up — launching game");
 
     show_launcher();
