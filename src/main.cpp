@@ -131,17 +131,16 @@ extern "C" void app_main(void)
     disp_cfg.color_format  = LV_COLOR_FORMAT_RGB565;
     disp_cfg.flags.buff_dma    = 1;  // internal DMA-capable SRAM (matches Elecrow reference)
     disp_cfg.flags.buff_spiram = 0;
-    disp_cfg.flags.sw_rotate   = 0;  // DIAG: landscape, no rotation
+    disp_cfg.flags.sw_rotate   = 1;  // SW rotation for portrait
     lvgl_port_display_dsi_cfg_t dsi_disp_cfg = {
         .flags = { .avoid_tearing = 0 },
     };
     lv_display_t *disp = lvgl_port_add_disp_dsi(&disp_cfg, &dsi_disp_cfg);
     assert(disp);
 
-    // DIAG: portrait rotation disabled — testing landscape first
-    // lvgl_port_lock(0);
-    // lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_90);
-    // lvgl_port_unlock();
+    lvgl_port_lock(0);
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+    lvgl_port_unlock();
 
     // ── GT911 touch ───────────────────────────────────────────────────────────
     i2c_master_bus_handle_t i2c_bus;
