@@ -19,10 +19,12 @@
 #include "esp_sntp.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
+#include "driver/i2s_std.h"
 #include <time.h>
 #include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_mipi_dsi.h"
@@ -843,6 +845,13 @@ static void prepare_question(void) {
 }
 
 // ── Forward declarations ──────────────────────────────────────────────────────
+// Audio forward decls (implementation before preload_bg_image)
+struct Note { uint32_t freq; uint32_t ms; };
+static const Note SND_CORRECT[]  = {{660, 110}, {880, 180}, {0, 0}};
+static const Note SND_WRONG[]    = {{196, 340}, {0, 0}};
+static const Note SND_COMPLETE[] = {{523, 90}, {659, 90}, {784, 90}, {1047, 340}, {0, 0}};
+static void audio_play(const Note* seq);
+
 static void show_home(void);
 static void launch_arcade(void);
 static void launch_settings(void);
@@ -1777,6 +1786,9 @@ static void on_answer(lv_event_t* e) {
         g_stars++;
         g_stars_round++;
         nvs_save_stars();
+        audio_play(SND_CORRECT);
+    } else {
+        audio_play(SND_WRONG);
     }
     show_feedback();
 }
@@ -1959,6 +1971,7 @@ static void on_play_again(lv_event_t* e) {
 static void on_home(lv_event_t* e) { show_home(); }
 
 static void show_round_complete(void) {
+    audio_play(SND_COMPLETE);
     lvgl_port_lock(0);
 
     lv_obj_t* scr = lv_obj_create(NULL);
@@ -2266,6 +2279,74 @@ static void show_admin(void) {
 }
 
 // ── Background image PSRAM preload ───────────────────────────────────────────
+// ── Audio ─────────────────────────────────────────────────────────────────────
+#define AUDIO_SAMPLE_RATE  16000
+#define AUDIO_PA_EN        GPIO_NUM_30
+#define AUDIO_I2S_WS       GPIO_NUM_21
+#define AUDIO_I2S_BCLK     GPIO_NUM_22
+#define AUDIO_I2S_DOUT     GPIO_NUM_23
+
+static i2s_chan_handle_t g_i2s_tx = NULL;
+
+static void melody_task(void* arg) {
+    Note* notes = (Note*)arg;
+    for (int i = 0; notes[i].freq; i++) {
+        int n    = (AUDIO_SAMPLE_RATE * (int)notes[i].ms) / 1000;
+        int16_t* buf = (int16_t*)malloc(n * 2);
+        if (!buf) break;
+        int fade = AUDIO_SAMPLE_RATE / 50;  // 20ms fade
+        for (int s = 0; s < n; s++) {
+            float env = (s < fade) ? (float)s / fade
+                      : (s > n - fade) ? (float)(n - s) / fade : 1.0f;
+            buf[s] = (int16_t)(sinf(2.f * (float)M_PI * notes[i].freq * s
+                                    / AUDIO_SAMPLE_RATE) * 26000.f * env);
+        }
+        size_t wr;
+        i2s_channel_write(g_i2s_tx, buf, (size_t)(n * 2), &wr, pdMS_TO_TICKS(600));
+        free(buf);
+    }
+    free(arg);
+    vTaskDelete(NULL);
+}
+
+static void audio_play(const Note* seq) {
+    if (!g_i2s_tx) return;
+    int n = 0;
+    while (seq[n].freq) n++;
+    Note* copy = (Note*)malloc((size_t)(n + 1) * sizeof(Note));
+    if (!copy) return;
+    memcpy(copy, seq, (size_t)(n + 1) * sizeof(Note));
+    xTaskCreate(melody_task, "audio", 4096, copy, 5, NULL);
+}
+
+static void audio_init(void) {
+    gpio_config_t pa = {};
+    pa.pin_bit_mask   = 1ULL << AUDIO_PA_EN;
+    pa.mode           = GPIO_MODE_OUTPUT;
+    gpio_config(&pa);
+    gpio_set_level(AUDIO_PA_EN, 1);
+
+    i2s_chan_config_t ch_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    i2s_new_channel(&ch_cfg, &g_i2s_tx, NULL);
+
+    i2s_std_config_t std_cfg = {
+        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
+                                                    I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk         = I2S_GPIO_UNUSED,
+            .bclk         = AUDIO_I2S_BCLK,
+            .ws           = AUDIO_I2S_WS,
+            .dout         = AUDIO_I2S_DOUT,
+            .din          = I2S_GPIO_UNUSED,
+            .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false},
+        },
+    };
+    i2s_channel_init_std_mode(g_i2s_tx, &std_cfg);
+    i2s_channel_enable(g_i2s_tx);
+    ESP_LOGI(TAG, "I2S audio ready");
+}
+
 static void preload_bg_image(void) {
     extern const lv_image_dsc_t bg_img;
     uint8_t* buf = (uint8_t*)heap_caps_malloc(bg_img.data_size, MALLOC_CAP_SPIRAM);
@@ -2460,6 +2541,7 @@ extern "C" void app_main(void) {
     set_brightness(g_brightness);
     ESP_LOGI(TAG, "Display up — launching game");
 
+    audio_init();
     preload_bg_image();
     slave_ota_check_and_run();
     wifi_init();
