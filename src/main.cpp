@@ -1415,31 +1415,13 @@ static void launch_settings(void) {
     lv_obj_set_style_text_color(star_title, lv_color_hex(C_GOLD), 0);
     lv_obj_align(star_title, LV_ALIGN_TOP_LEFT, 28, 24);
 
-    int shown = (int)(g_stars < 10 ? g_stars : 10);
-    for (int i = 0; i < shown; i++) {
-        lv_obj_t* sg = lv_label_create(star_card);
-        lv_label_set_text(sg, "*");
-        lv_obj_set_style_text_font(sg, &lv_font_montserrat_32, 0);
-        lv_obj_set_style_text_color(sg, lv_color_hex(C_STAR), 0);
-        lv_obj_set_pos(sg, 28 + i * 36, 72);
-    }
-    if (g_stars > 10) {
-        char more_buf[24];
-        snprintf(more_buf, sizeof(more_buf), "+ %ld more", (long)(g_stars - 10));
-        lv_obj_t* more = lv_label_create(star_card);
-        lv_label_set_text(more, more_buf);
-        lv_obj_set_style_text_font(more, &lv_font_montserrat_28, 0);
-        lv_obj_set_style_text_color(more, lv_color_hex(C_SUBTEXT), 0);
-        lv_obj_set_pos(more, 364, 76);
-    }
-
     char total_buf[24];
-    snprintf(total_buf, sizeof(total_buf), "%ld", (long)g_stars);
+    snprintf(total_buf, sizeof(total_buf), "* %ld", (long)g_stars);
     lv_obj_t* total_lbl = lv_label_create(star_card);
     lv_label_set_text(total_lbl, total_buf);
     lv_obj_set_style_text_font(total_lbl, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(total_lbl, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(total_lbl, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_align(total_lbl, LV_ALIGN_CENTER, 0, 16);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
     lvgl_port_unlock();
