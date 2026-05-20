@@ -700,6 +700,43 @@ static void brightness_load(void) {
     g_brightness = v;
 }
 
+// Volume
+#define VOLUME_DEF 75
+static uint8_t g_volume = VOLUME_DEF;  // 0-100
+
+static void volume_save(void) {
+    nvs_handle_t h;
+    if (nvs_open("learning", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "volume", g_volume);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+static void volume_load(void) {
+    uint8_t v = VOLUME_DEF;
+    nvs_handle_t h;
+    if (nvs_open("learning", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "volume", &v);
+        nvs_close(h);
+    }
+    if (v > 100) v = 100;
+    g_volume = v;
+}
+
+static void on_volume_slider(lv_event_t* e) {
+    lv_obj_t* sld  = (lv_obj_t*)lv_event_get_target(e);
+    lv_obj_t* lbl  = (lv_obj_t*)lv_event_get_user_data(e);
+    int v          = lv_slider_get_value(sld);
+    g_volume       = (uint8_t)v;
+    if (lbl) {
+        char b[8];
+        snprintf(b, sizeof(b), "%d%%", v);
+        lv_label_set_text(lbl, b);
+    }
+    if (lv_event_get_code(e) == LV_EVENT_RELEASED) volume_save();
+}
+
 // ── Random helper ─────────────────────────────────────────────────────────────
 static int rnd(int max) {
     if (max <= 0) return 0;
@@ -1490,6 +1527,52 @@ static void launch_settings(void) {
     lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(brt_lbl, lv_color_hex(C_SUBTEXT), 0);
     lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -10);
+
+    // ── VOLUME ────────────────────────────────────────────────────────────
+    lv_obj_t* vol_card = make_card(244);
+
+    lv_obj_t* vol_title = lv_label_create(vol_card);
+    lv_label_set_text(vol_title, "Volume");
+    lv_obj_set_style_text_font(vol_title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(vol_title, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_align(vol_title, LV_ALIGN_TOP_MID, 0, 28);
+
+    char vol_buf[8];
+    snprintf(vol_buf, sizeof(vol_buf), "%d%%", (int)g_volume);
+    lv_obj_t* vol_val = lv_label_create(vol_card);
+    lv_label_set_text(vol_val, vol_buf);
+    lv_obj_set_style_text_font(vol_val, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(vol_val, lv_color_hex(C_GOLD), 0);
+    lv_obj_align(vol_val, LV_ALIGN_TOP_MID, 0, 72);
+
+    lv_obj_t* vsld = lv_slider_create(vol_card);
+    lv_obj_set_size(vsld, 460, 48);
+    lv_obj_align(vsld, LV_ALIGN_BOTTOM_MID, 0, -58);
+    lv_slider_set_range(vsld, 0, 100);
+    lv_slider_set_value(vsld, g_volume, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(vsld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
+    lv_obj_set_style_radius(vsld, 24, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(vsld, lv_color_hex(C_BTN_ALT), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(vsld, lv_color_hex(0xBBAAFF), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(vsld, 14, LV_PART_KNOB);
+    lv_obj_set_style_radius(vsld, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(vsld, 12, LV_PART_KNOB);
+    lv_obj_set_style_shadow_color(vsld, lv_color_hex(0x000000), LV_PART_KNOB);
+    lv_obj_set_style_shadow_opa(vsld, 80, LV_PART_KNOB);
+    lv_obj_add_event_cb(vsld, on_volume_slider, LV_EVENT_VALUE_CHANGED, vol_val);
+    lv_obj_add_event_cb(vsld, on_volume_slider, LV_EVENT_RELEASED, vol_val);
+
+    lv_obj_t* quiet_lbl = lv_label_create(vol_card);
+    lv_label_set_text(quiet_lbl, "quiet");
+    lv_obj_set_style_text_font(quiet_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(quiet_lbl, lv_color_hex(C_SUBTEXT), 0);
+    lv_obj_align(quiet_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -10);
+
+    lv_obj_t* loud_lbl = lv_label_create(vol_card);
+    lv_label_set_text(loud_lbl, "loud");
+    lv_obj_set_style_text_font(loud_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(loud_lbl, lv_color_hex(C_SUBTEXT), 0);
+    lv_obj_align(loud_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -10);
 
     // ── YOUR STARS ────────────────────────────────────────────────────────
     make_section("YOUR STARS");
@@ -2299,7 +2382,8 @@ static void melody_task(void* arg) {
             float env = (s < fade) ? (float)s / fade
                       : (s > n - fade) ? (float)(n - s) / fade : 1.0f;
             buf[s] = (int16_t)(sinf(2.f * (float)M_PI * notes[i].freq * s
-                                    / AUDIO_SAMPLE_RATE) * 26000.f * env);
+                                    / AUDIO_SAMPLE_RATE) * 26000.f * env
+                               * ((float)g_volume / 100.f));
         }
         size_t wr;
         i2s_channel_write(g_i2s_tx, buf, (size_t)(n * 2), &wr, pdMS_TO_TICKS(600));
@@ -2425,6 +2509,7 @@ extern "C" void app_main(void) {
     nvs_load_ota_ip();
     wifi_creds_load();
     brightness_load();
+    volume_load();
     brightness_init();    // LEDC PWM backlight, duty 0 until display is up
 
     // (backlight handled by LEDC; configured before display init)
