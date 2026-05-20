@@ -20,6 +20,9 @@
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
 #include "driver/i2s_std.h"
+#include "esp_vfs_fat.h"
+#include "driver/sdmmc_host.h"
+#include "sdmmc_cmd.h"
 #include <time.h>
 #include <sys/time.h>
 #include <stdlib.h>
@@ -377,6 +380,12 @@ static const MultiplyQ MULT_DEF[] = {
     {10,8,{70,80,90},80},{10,9,{80,90,100},90},{10,10,{90,100,110},100},
 };
 static const int MULT_N = sizeof(MULT_DEF)/sizeof(MULT_DEF[0]);
+
+// SD-loaded extra question banks (appended at runtime)
+#define SD_EXTRA_MAX  64
+static AddQ      g_add_extra[SD_EXTRA_MAX];   static int g_add_extra_n  = 0;
+static SkipQ     g_skip_extra[SD_EXTRA_MAX];  static int g_skip_extra_n = 0;
+static MultiplyQ g_mult_extra[SD_EXTRA_MAX];  static int g_mult_extra_n = 0;
 
 // Math types used per game mode
 static const QType MATH_TYPES[] = {
@@ -746,18 +755,18 @@ static int rnd(int max) {
 // ── Round builder ─────────────────────────────────────────────────────────────
 static int bank_size(QType t) {
     switch (t) {
-        case QT_COUNT:        return COUNT_N;
-        case QT_MISSING_NUM:  return MISSNUM_N;
-        case QT_TEN_FRAME:    return TENFRAME_N;
-        case QT_ADD:          return ADD_N;
-        case QT_MAKE10:       return MAKE10_N;
-        case QT_STARTS_WITH:  return STARTS_N;
+        case QT_COUNT:         return COUNT_N;
+        case QT_MISSING_NUM:   return MISSNUM_N;
+        case QT_TEN_FRAME:     return TENFRAME_N;
+        case QT_ADD:           return ADD_N  + g_add_extra_n;
+        case QT_MAKE10:        return MAKE10_N;
+        case QT_STARTS_WITH:   return STARTS_N;
         case QT_MISSING_LETTER:return MISSLET_N;
-        case QT_RHYME:        return RHYME_N;
-        case QT_UPPER_LOWER:  return UPPER_N;
-        case QT_SKIP:         return SKIP_N;
-        case QT_MULTIPLY:     return MULT_N;
-        default:              return 1;
+        case QT_RHYME:         return RHYME_N;
+        case QT_UPPER_LOWER:   return UPPER_N;
+        case QT_SKIP:          return SKIP_N + g_skip_extra_n;
+        case QT_MULTIPLY:      return MULT_N + g_mult_extra_n;
+        default:               return 1;
     }
 }
 
@@ -824,7 +833,7 @@ static void prepare_question(void) {
             break;
         }
         case QT_ADD: {
-            const AddQ& q = ADD_DEF[idx];
+            const AddQ& q = (idx < ADD_N) ? ADD_DEF[idx] : g_add_extra[idx - ADD_N];
             snprintf(g_qd.prompt, sizeof(g_qd.prompt), "What is %d + %d?", q.left, q.right);
             fill_int_opts(q.opts, q.correct);
             break;
@@ -836,14 +845,14 @@ static void prepare_question(void) {
             break;
         }
         case QT_SKIP: {
-            const SkipQ& q = SKIP_DEF[idx];
+            const SkipQ& q = (idx < SKIP_N) ? SKIP_DEF[idx] : g_skip_extra[idx - SKIP_N];
             snprintf(g_qd.prompt, sizeof(g_qd.prompt), "Count by %ds. What comes next?", q.step);
             snprintf(g_qd.extra, sizeof(g_qd.extra), "%d, %d, %d, ?", q.shown[0], q.shown[1], q.shown[2]);
             fill_int_opts(q.opts, q.correct);
             break;
         }
         case QT_MULTIPLY: {
-            const MultiplyQ& q = MULT_DEF[idx];
+            const MultiplyQ& q = (idx < MULT_N) ? MULT_DEF[idx] : g_mult_extra[idx - MULT_N];
             snprintf(g_qd.prompt, sizeof(g_qd.prompt), "What is %d x %d?", q.left, q.right);
             fill_int_opts(q.opts, q.correct);
             break;
@@ -916,6 +925,13 @@ static lv_obj_t* make_label(lv_obj_t* parent, const char* txt,
     lv_obj_set_style_text_font(lbl, font, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(color), 0);
     return lbl;
+}
+
+// Dark outline around text so it reads on any wallpaper.
+static void apply_wallpaper_stroke(lv_obj_t* lbl) {
+    lv_obj_set_style_text_outline_stroke_color(lbl, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_outline_stroke_width(lbl, 3, 0);
+    lv_obj_set_style_text_outline_stroke_opa(lbl, 210, 0);
 }
 
 // Transparent flex column — used instead of absolute x/y for centered stacks.
@@ -1262,6 +1278,7 @@ static void show_home(void) {
     snprintf(star_buf, sizeof(star_buf), "* %ld", (long)g_stars);
     lv_obj_t* star_lbl = make_label(hdr, star_buf, &lv_font_montserrat_24, C_STAR);
     lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 24, 0);
+    apply_wallpaper_stroke(star_lbl);
     // Stop any running timer from a prior home screen instance
     if (g_home_timer) { lv_timer_delete(g_home_timer); g_home_timer = NULL; }
     g_home_scr = scr;
@@ -1280,14 +1297,17 @@ static void show_home(void) {
     // Greeting + time (save refs for live updates)
     g_home_greet_lbl = make_label(scr, init_greet, &lv_font_montserrat_32, C_CARD_TXT);
     lv_obj_align(g_home_greet_lbl, LV_ALIGN_TOP_MID, 0, 76);
+    apply_wallpaper_stroke(g_home_greet_lbl);
 
     g_home_time_lbl = make_label(scr, init_time, &lv_font_montserrat_48, C_GOLD);
     lv_obj_align(g_home_time_lbl, LV_ALIGN_TOP_MID, 0, 122);
+    apply_wallpaper_stroke(g_home_time_lbl);
 
     const char* w_init = g_weather_buf[0] ? g_weather_buf : "Connect WiFi for weather";
     g_home_weather_lbl = make_label(scr, w_init, &lv_font_montserrat_24, C_SUBTEXT);
     lv_obj_set_style_opa(g_home_weather_lbl, LV_OPA_60, 0);
     lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_MID, 0, 182);
+    apply_wallpaper_stroke(g_home_weather_lbl);
 
     // ── Bottom app row: 2 tiles pinned to bottom ──────────────────────────
     const int TILE_W = 262, TILE_H = 210, TILE_GAP = 20;
@@ -2362,6 +2382,95 @@ static void show_admin(void) {
 }
 
 // ── Background image PSRAM preload ───────────────────────────────────────────
+// ── SD card question loader ───────────────────────────────────────────────────
+// Slot 0 (CLK=43, CMD=44, D0=39), 1-bit mode. ESP-Hosted owns the SDMMC host
+// for WiFi (slot 1) — use dummy init/deinit to avoid double-init in IDF 6.x.
+
+static bool g_sd_mounted = false;
+
+static esp_err_t sdmmc_host_no_init(void)   { return ESP_OK; }
+static esp_err_t sdmmc_host_no_deinit(void) { return ESP_OK; }
+
+static bool sd_init(void) {
+    esp_vfs_fat_sdmmc_mount_config_t mcfg = {
+        .format_if_mount_failed = false,
+        .max_files              = 4,
+        .allocation_unit_size   = 16 * 1024,
+    };
+    sdmmc_host_t host  = SDMMC_HOST_DEFAULT();
+    host.slot          = SDMMC_HOST_SLOT_0;
+    host.init          = sdmmc_host_no_init;    // esp_hosted already init'd the host
+    host.deinit        = sdmmc_host_no_deinit;
+
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 1;   // 1-bit mode; avoids touching GPIO40/42 (touch RST/INT)
+    slot.clk   = GPIO_NUM_43;
+    slot.cmd   = GPIO_NUM_44;
+    slot.d0    = GPIO_NUM_39;
+    slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+    static sdmmc_card_t* card = NULL;
+    esp_err_t err = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &mcfg, &card);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "SD mount failed (%s) — using built-in questions only", esp_err_to_name(err));
+        return false;
+    }
+    ESP_LOGI(TAG, "SD mounted: %s %.1f MB", card->cid.name,
+             (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / 1048576.f);
+    g_sd_mounted = true;
+    return true;
+}
+
+// Parse one CSV line; returns true and fills the bank entry on success.
+// ADD:  ADD,left,right,opt0,opt1,opt2,correct_idx
+// SKIP: SKIP,step,s0,s1,s2,opt0,opt1,opt2,correct_idx
+// MULT: MULT,left,right,opt0,opt1,opt2,correct_idx
+static void sd_parse_line(char* line) {
+    if (!line || line[0] == '#' || line[0] == '\n' || line[0] == '\r') return;
+    // strip trailing whitespace
+    for (int i = (int)strlen(line) - 1; i >= 0 && (line[i] == '\n' || line[i] == '\r' || line[i] == ' '); i--)
+        line[i] = '\0';
+
+    if (strncmp(line, "ADD,", 4) == 0 && g_add_extra_n < SD_EXTRA_MAX) {
+        AddQ q = {};
+        if (sscanf(line + 4, "%d,%d,%d,%d,%d,%d",
+                   &q.left, &q.right, &q.opts[0], &q.opts[1], &q.opts[2], &q.correct) == 6) {
+            g_add_extra[g_add_extra_n++] = q;
+        }
+    } else if (strncmp(line, "SKIP,", 5) == 0 && g_skip_extra_n < SD_EXTRA_MAX) {
+        SkipQ q = {};
+        if (sscanf(line + 5, "%d,%d,%d,%d,%d,%d,%d,%d",
+                   &q.step, &q.shown[0], &q.shown[1], &q.shown[2],
+                   &q.opts[0], &q.opts[1], &q.opts[2], &q.correct) == 8) {
+            g_skip_extra[g_skip_extra_n++] = q;
+        }
+    } else if (strncmp(line, "MULT,", 5) == 0 && g_mult_extra_n < SD_EXTRA_MAX) {
+        MultiplyQ q = {};
+        if (sscanf(line + 5, "%d,%d,%d,%d,%d,%d",
+                   &q.left, &q.right, &q.opts[0], &q.opts[1], &q.opts[2], &q.correct) == 6) {
+            g_mult_extra[g_mult_extra_n++] = q;
+        }
+    }
+}
+
+static void sd_load_questions(void) {
+    if (!g_sd_mounted) return;
+    FILE* f = fopen("/sdcard/questions.csv", "r");
+    if (!f) {
+        ESP_LOGI(TAG, "No /sdcard/questions.csv — using defaults only");
+        return;
+    }
+    char line[128];
+    int  loaded = 0;
+    while (fgets(line, sizeof(line), f)) {
+        sd_parse_line(line);
+        loaded++;
+    }
+    fclose(f);
+    ESP_LOGI(TAG, "SD loaded: %d ADD, %d SKIP, %d MULT extra questions",
+             g_add_extra_n, g_skip_extra_n, g_mult_extra_n);
+}
+
 // ── Audio ─────────────────────────────────────────────────────────────────────
 #define AUDIO_SAMPLE_RATE  16000
 #define AUDIO_PA_EN        GPIO_NUM_30
@@ -2630,6 +2739,8 @@ extern "C" void app_main(void) {
     preload_bg_image();
     slave_ota_check_and_run();
     wifi_init();
+    sd_init();
+    sd_load_questions();
 
     show_home();
 }

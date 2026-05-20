@@ -20,4 +20,6 @@ idf_component_register(SRCS ${app_sources}
         esp_netif
         lwip
         esp_http_client
+        fatfs
+        sdmmc
 )
