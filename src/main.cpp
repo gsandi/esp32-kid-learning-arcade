@@ -422,6 +422,11 @@ static lv_obj_t*   g_home_time_lbl     = NULL;
 static lv_obj_t*   g_home_greet_lbl    = NULL;
 static lv_obj_t*   g_home_weather_lbl  = NULL;
 static lv_timer_t* g_home_timer        = NULL;
+static lv_timer_t* g_idle_timer        = NULL;
+static lv_obj_t*   g_screensaver_scr   = NULL;
+static lv_obj_t*   g_ss_time_lbl       = NULL;
+static lv_timer_t* g_ss_clock_timer    = NULL;
+#define IDLE_TIMEOUT_MS  (2 * 60 * 1000)   // 2 minutes
 // WiFi screen widget refs (scan flow)
 static lv_obj_t*   g_wifi_kb           = NULL;
 static lv_obj_t*   g_wifi_pass_ta      = NULL;
@@ -430,6 +435,7 @@ static lv_obj_t*   g_settings_wifi_lbl = NULL;  // updated by event handler
 static bool        g_scan_done         = false;
 
 static char        g_ota_server_ip[64] = "192.168.1.100";
+static lv_image_dsc_t g_bg_img_psram  = {};   // PSRAM-backed copy, filled once at boot
 static lv_obj_t*   g_ota_status_lbl    = NULL;
 static lv_obj_t*   g_ota_ip_ta         = NULL;
 static bool        g_scanning          = false;
@@ -1112,6 +1118,67 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
 }
 
 
+// ── Screensaver (idle: black + white clock) ───────────────────────────────────
+static void screensaver_clock_cb(lv_timer_t*) {
+    if (!g_ss_time_lbl) return;
+    time_t now = time(NULL);
+    if (now < 1704067200L) return;
+    struct tm ti;
+    localtime_r(&now, &ti);
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02d:%02d", ti.tm_hour, ti.tm_min);
+    lv_label_set_text(g_ss_time_lbl, buf);
+}
+
+static void screensaver_dismiss(lv_event_t*) {
+    if (g_ss_clock_timer) { lv_timer_delete(g_ss_clock_timer); g_ss_clock_timer = NULL; }
+    g_ss_time_lbl = NULL;
+    g_screensaver_scr = NULL;
+    show_home();
+}
+
+static void show_screensaver(lv_timer_t*) {
+    if (g_idle_timer) { lv_timer_delete(g_idle_timer); g_idle_timer = NULL; }
+
+    lvgl_port_lock(0);
+    lv_obj_t* scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x010108), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, screensaver_dismiss, LV_EVENT_CLICKED, NULL);
+
+    g_ss_time_lbl = lv_label_create(scr);
+    time_t now = time(NULL);
+    char buf[8] = "--:--";
+    if (now > 1704067200L) {
+        struct tm ti;
+        localtime_r(&now, &ti);
+        snprintf(buf, sizeof(buf), "%02d:%02d", ti.tm_hour, ti.tm_min);
+    }
+    lv_label_set_text(g_ss_time_lbl, buf);
+    lv_obj_set_style_text_font(g_ss_time_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(g_ss_time_lbl, lv_color_hex(0xF0EFFF), 0);
+    lv_obj_center(g_ss_time_lbl);
+
+    g_screensaver_scr = scr;
+    g_ss_clock_timer = lv_timer_create(screensaver_clock_cb, 15000, NULL);
+
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 600, 0, false);
+    lvgl_port_unlock();
+}
+
+static void idle_reset(void) {
+    if (g_idle_timer) {
+        lv_timer_reset(g_idle_timer);
+    } else if (!g_screensaver_scr) {
+        g_idle_timer = lv_timer_create(show_screensaver, IDLE_TIMEOUT_MS, NULL);
+        lv_timer_set_repeat_count(g_idle_timer, 1);
+    }
+}
+
 static void show_home(void) {
     lvgl_port_lock(0);
 
@@ -1122,12 +1189,23 @@ static void show_home(void) {
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Background photo
+    // Background photo (PSRAM copy if available, flash fallback)
     extern const lv_image_dsc_t bg_img;
+    const lv_image_dsc_t* bg_src = g_bg_img_psram.data ? &g_bg_img_psram : &bg_img;
     lv_obj_t* bg = lv_image_create(scr);
-    lv_image_set_src(bg, &bg_img);
+    lv_image_set_src(bg, bg_src);
     lv_obj_set_pos(bg, 0, 0);
     lv_obj_remove_flag(bg, LV_OBJ_FLAG_CLICKABLE);
+
+    // Scrim: semi-transparent dark layer over top of photo so text is always readable
+    lv_obj_t* scrim = lv_obj_create(scr);
+    lv_obj_set_size(scrim, SCR_W, 290);
+    lv_obj_set_pos(scrim, 0, 0);
+    lv_obj_set_style_bg_color(scrim, lv_color_hex(0x04000E), 0);
+    lv_obj_set_style_bg_opa(scrim, 195, 0);
+    lv_obj_set_style_border_width(scrim, 0, 0);
+    lv_obj_remove_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
 
     // ── Top 20%: status bar + greeting widget (~205px) ────────────────────
     // Status bar: transparent 60px, stars left, long-press → admin
@@ -1145,9 +1223,6 @@ static void show_home(void) {
     snprintf(star_buf, sizeof(star_buf), "* %ld", (long)g_stars);
     lv_obj_t* star_lbl = make_label(hdr, star_buf, &lv_font_montserrat_24, C_STAR);
     lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 24, 0);
-    lv_obj_t* ttl = make_label(hdr, "Kid Arcade", &lv_font_montserrat_24, C_SUBTEXT);
-    lv_obj_align(ttl, LV_ALIGN_RIGHT_MID, -24, 0);
-
     // Stop any running timer from a prior home screen instance
     if (g_home_timer) { lv_timer_delete(g_home_timer); g_home_timer = NULL; }
     g_home_scr = scr;
@@ -1176,18 +1251,19 @@ static void show_home(void) {
     lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_MID, 0, 182);
 
     // ── Bottom app row: 2 tiles pinned to bottom ──────────────────────────
-    const int TILE_W = 190, TILE_H = 175, TILE_GAP = 32;
-    const int ROW_Y  = SCR_H - TILE_H - 48;
+    const int TILE_W = 262, TILE_H = 210, TILE_GAP = 20;
+    const int ROW_Y  = SCR_H - TILE_H - 60;
     const int ROW_X  = (SCR_W - (TILE_W * 2 + TILE_GAP)) / 2;
 
-    make_app_tile(scr, "A", "Arcade",
+    make_app_tile(scr, "Arcade", "Math + Reading",
                   C_MATH, C_MATH_DK,
                   ROW_X, ROW_Y, TILE_W, TILE_H, on_launch_arcade);
-    make_app_tile(scr, "S", "Settings",
+    make_app_tile(scr, "Settings", "WiFi + Stars",
                   C_BTN_ALT, 0x4A339A,
                   ROW_X + TILE_W + TILE_GAP, ROW_Y, TILE_W, TILE_H, on_launch_settings);
 
     g_home_timer = lv_timer_create(home_clock_cb, 1000, NULL);
+    idle_reset();
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     lvgl_port_unlock();
@@ -1283,7 +1359,7 @@ static void launch_settings(void) {
         lv_obj_set_width(lbl, 552);
         lv_obj_t* rule = lv_obj_create(col);
         lv_obj_set_size(rule, 552, 2);
-        lv_obj_set_style_bg_color(rule, lv_color_hex(C_BTN), 0);
+        lv_obj_set_style_bg_color(rule, lv_color_hex(0x3A2862), 0);
         lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(rule, 0, 0);
         lv_obj_set_style_radius(rule, 1, 0);
@@ -1296,7 +1372,7 @@ static void launch_settings(void) {
     auto make_card = [&](int32_t h) -> lv_obj_t* {
         lv_obj_t* c = lv_obj_create(col);
         lv_obj_set_size(c, 552, h);
-        lv_obj_set_style_bg_color(c, lv_color_hex(C_BTN), 0);
+        lv_obj_set_style_bg_color(c, lv_color_hex(0x1A0F3E), 0);
         lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(c, 20, 0);
         lv_obj_set_style_border_width(c, 0, 0);
@@ -1315,11 +1391,19 @@ static void launch_settings(void) {
     lv_obj_set_style_pad_left(wifi_card, 24, 0);
     lv_obj_set_style_pad_right(wifi_card, 20, 0);
 
-    lv_obj_t* wifi_icon = lv_label_create(wifi_card);
-    lv_label_set_text(wifi_icon, "((o))");
-    lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0x5BB8F5), 0);
-    lv_obj_align(wifi_icon, LV_ALIGN_LEFT_MID, 0, 0);
+    // Status dot: filled circle, green=connected, muted=offline
+    lv_obj_t* wifi_dot = lv_obj_create(wifi_card);
+    lv_obj_set_size(wifi_dot, 16, 16);
+    lv_obj_set_style_radius(wifi_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(wifi_dot, lv_color_hex(g_wifi_connected ? C_CORRECT : 0x4A4068), 0);
+    lv_obj_set_style_bg_opa(wifi_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(wifi_dot, 0, 0);
+    lv_obj_set_style_shadow_width(wifi_dot, g_wifi_connected ? 14 : 0, 0);
+    lv_obj_set_style_shadow_color(wifi_dot, lv_color_hex(C_CORRECT), 0);
+    lv_obj_set_style_shadow_opa(wifi_dot, g_wifi_connected ? 160 : 0, 0);
+    lv_obj_remove_flag(wifi_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(wifi_dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(wifi_dot, LV_ALIGN_LEFT_MID, 14, 0);
 
     char ssid_buf[64];
     snprintf(ssid_buf, sizeof(ssid_buf), "%s", g_wifi_ssid[0] ? g_wifi_ssid : "No network saved");
@@ -1329,7 +1413,7 @@ static void launch_settings(void) {
     lv_obj_set_style_text_color(ssid_lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_set_style_max_width(ssid_lbl, 300, 0);
     lv_label_set_long_mode(ssid_lbl, LV_LABEL_LONG_DOT);
-    lv_obj_align(ssid_lbl, LV_ALIGN_LEFT_MID, 80, -18);
+    lv_obj_align(ssid_lbl, LV_ALIGN_LEFT_MID, 42, -18);
 
     char wifi_st[32];
     snprintf(wifi_st, sizeof(wifi_st), "%s",
@@ -1339,7 +1423,7 @@ static void launch_settings(void) {
     lv_obj_set_style_text_font(g_settings_wifi_lbl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(g_settings_wifi_lbl,
         lv_color_hex(g_wifi_connected ? C_CORRECT : C_SUBTEXT), 0);
-    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 80, 18);
+    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 42, 18);
 
     lv_obj_t* chg_btn = lv_button_create(wifi_card);
     lv_obj_set_size(chg_btn, 130, 64);
@@ -1394,13 +1478,13 @@ static void launch_settings(void) {
     lv_obj_add_event_cb(sld, on_brightness_slider, LV_EVENT_VALUE_CHANGED, br_val);
 
     lv_obj_t* dim_lbl = lv_label_create(br_card);
-    lv_label_set_text(dim_lbl, "o");
+    lv_label_set_text(dim_lbl, "dim");
     lv_obj_set_style_text_font(dim_lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(dim_lbl, lv_color_hex(C_SUBTEXT), 0);
     lv_obj_align(dim_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -28);
 
     lv_obj_t* brt_lbl = lv_label_create(br_card);
-    lv_label_set_text(brt_lbl, "O");
+    lv_label_set_text(brt_lbl, "bright");
     lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(brt_lbl, lv_color_hex(C_SUBTEXT), 0);
     lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -28);
@@ -1409,19 +1493,19 @@ static void launch_settings(void) {
     make_section("YOUR STARS");
     lv_obj_t* star_card = make_card(180);
 
-    lv_obj_t* star_title = lv_label_create(star_card);
-    lv_label_set_text(star_title, "Your Stars");
-    lv_obj_set_style_text_font(star_title, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(star_title, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(star_title, LV_ALIGN_TOP_LEFT, 28, 24);
-
     char total_buf[24];
-    snprintf(total_buf, sizeof(total_buf), "* %ld", (long)g_stars);
+    snprintf(total_buf, sizeof(total_buf), "%ld", (long)g_stars);
     lv_obj_t* total_lbl = lv_label_create(star_card);
     lv_label_set_text(total_lbl, total_buf);
     lv_obj_set_style_text_font(total_lbl, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(total_lbl, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(total_lbl, LV_ALIGN_CENTER, 0, 16);
+    lv_obj_align(total_lbl, LV_ALIGN_CENTER, 0, -10);
+
+    lv_obj_t* star_sub = lv_label_create(star_card);
+    lv_label_set_text(star_sub, "stars earned");
+    lv_obj_set_style_text_font(star_sub, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(star_sub, lv_color_hex(C_SUBTEXT), 0);
+    lv_obj_align(star_sub, LV_ALIGN_CENTER, 0, 42);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
     lvgl_port_unlock();
@@ -2188,6 +2272,17 @@ static void show_admin(void) {
     lvgl_port_unlock();
 }
 
+// ── Background image PSRAM preload ───────────────────────────────────────────
+static void preload_bg_image(void) {
+    extern const lv_image_dsc_t bg_img;
+    uint8_t* buf = (uint8_t*)heap_caps_malloc(bg_img.data_size, MALLOC_CAP_SPIRAM);
+    if (!buf) { ESP_LOGW(TAG, "PSRAM alloc failed — bg stays in flash"); return; }
+    memcpy(buf, bg_img.data, bg_img.data_size);
+    g_bg_img_psram        = bg_img;
+    g_bg_img_psram.data   = buf;
+    ESP_LOGI(TAG, "bg_img copied to PSRAM (%lu bytes)", (unsigned long)bg_img.data_size);
+}
+
 // ── LDO / DSI PHY power ──────────────────────────────────────────────────────
 static void enable_dsi_phy_power(void) {
     static esp_ldo_channel_handle_t phy_pwr_chan = NULL;
@@ -2372,6 +2467,7 @@ extern "C" void app_main(void) {
     set_brightness(g_brightness);
     ESP_LOGI(TAG, "Display up — launching game");
 
+    preload_bg_image();
     slave_ota_check_and_run();
     wifi_init();
 
