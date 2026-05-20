@@ -1196,16 +1196,9 @@ static void show_home(void) {
     lv_image_set_src(bg, bg_src);
     lv_obj_set_pos(bg, 0, 0);
     lv_obj_remove_flag(bg, LV_OBJ_FLAG_CLICKABLE);
-
-    // Scrim: semi-transparent dark layer over top of photo so text is always readable
-    lv_obj_t* scrim = lv_obj_create(scr);
-    lv_obj_set_size(scrim, SCR_W, 290);
-    lv_obj_set_pos(scrim, 0, 0);
-    lv_obj_set_style_bg_color(scrim, lv_color_hex(0x04000E), 0);
-    lv_obj_set_style_bg_opa(scrim, 195, 0);
-    lv_obj_set_style_border_width(scrim, 0, 0);
-    lv_obj_remove_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
+    // Uniform dark tint over the photo — no band, just consistent dimming
+    lv_obj_set_style_image_recolor(bg, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_image_recolor_opa(bg, 90, 0);   // ~35% darkening
 
     // ── Top 20%: status bar + greeting widget (~205px) ────────────────────
     // Status bar: transparent 60px, stars left, long-press → admin
@@ -1445,7 +1438,7 @@ static void launch_settings(void) {
 
     // ── DISPLAY ──────────────────────────────────────────────────────────
     make_section("DISPLAY");
-    lv_obj_t* br_card = make_card(220);
+    lv_obj_t* br_card = make_card(244);
 
     lv_obj_t* br_title = lv_label_create(br_card);
     lv_label_set_text(br_title, "Brightness");
@@ -1463,7 +1456,7 @@ static void launch_settings(void) {
 
     lv_obj_t* sld = lv_slider_create(br_card);
     lv_obj_set_size(sld, 460, 48);
-    lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -24);
+    lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -58);
     lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
     lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(sld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
@@ -1479,15 +1472,15 @@ static void launch_settings(void) {
 
     lv_obj_t* dim_lbl = lv_label_create(br_card);
     lv_label_set_text(dim_lbl, "dim");
-    lv_obj_set_style_text_font(dim_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(dim_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(dim_lbl, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(dim_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -28);
+    lv_obj_align(dim_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -10);
 
     lv_obj_t* brt_lbl = lv_label_create(br_card);
     lv_label_set_text(brt_lbl, "bright");
-    lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(brt_lbl, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -28);
+    lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -10);
 
     // ── YOUR STARS ────────────────────────────────────────────────────────
     make_section("YOUR STARS");
@@ -2201,7 +2194,7 @@ static void show_ota(void) {
     lv_obj_t* ttl = make_label(hdr, "OTA Update", &lv_font_montserrat_32, C_GOLD);
     lv_obj_center(ttl);
 
-    lv_obj_t* col = make_col(scr, SCR_W - 60, 340, 20);
+    lv_obj_t* col = make_col(scr, SCR_W - 60, 580, 20);
     lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 104);
 
     make_label(col, "Server IP:", &lv_font_montserrat_28, C_SUBTEXT);
