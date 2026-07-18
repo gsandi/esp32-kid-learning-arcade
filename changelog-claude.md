@@ -3610,4 +3610,306 @@ in settings the dim and bright are on top of the slider.. it should move down an
 
 what happened to question bank update thread in the past, could u reference form the claude-mem
 
+**Work done:** (completed 2026-05-19 19:51:55)
+
+Committed. OTA server still running on **192.168.87.136:8080**.
+
+On the device: **Admin → OTA Update** → enter `192.168.87.136` → Start. It'll download, flash, and reboot automatically.
+
+Changes in this build:
+- Home screen: solid band gone, uniform ~35% dimming via image recolor
+- Brightness card: slider no longer overlaps labels; "dim"/"bright" at smaller font (20) below the slider
+- OTA screen: keyboard no longer cuts off the Back button
+
+---
+
+## 2026-05-19 20:00:39
+
+**Prompt:** i did add the speakers.. can we test it out please. anything extra needed
+
+**Work done:** (completed 2026-05-19 20:05:11)
+
+OTA server still running at **192.168.87.136:8080**.
+
+**On device:** Admin → OTA Update → enter `192.168.87.136` → Start. Takes ~30s to download + flash, then reboots.
+
+**What you'll hear:**
+- Correct answer: two ascending tones (E5 → A5, ~300ms)
+- Wrong answer: single low soft tone (G3, ~340ms)
+- Round complete (5 done): four-note arpeggio C→E→G→C (up an octave)
+
+If the speaker sounds distorted/too loud, I can drop the volume (currently `26000` out of `32767`). If no sound at all, likely the PA_EN pin (GPIO30) isn't wired or the I2S pins need checking.
+
+---
+
+## 2026-05-19 20:12:44
+
+**Prompt:** also do we have volume control along with it in settings?
+
+**Work done:** (completed 2026-05-19 20:14:05)
+
+OTA server still up at **192.168.87.136:8080** — push from the device as usual.
+
+Settings now has a **Volume** card below Brightness. Slider 0–100, purple accent to distinguish from gold brightness. Persists to NVS. Moving it live-updates the next tone played.
+
+---
+
+## 2026-05-19 20:15:51
+
+**Prompt:** for the connected micro sd card could u load the questions and make updates as needed .. dont format the micro sd card.. see if the exising file system works.. 
+also the home screen time and weather and greeting are barely legible due to a bright wallpaper.. i would like to figure out a better alternative to that styling .. maybe wallpaper based
+
+**Work done:** (completed 2026-05-19 20:25:06)
+
+OTA server still up at **192.168.87.136:8080** — push from the device.
+
+---
+
+Two things in this build:
+
+**Home screen text:** Dark stroke outline (3px, 82% opaque) applied to greeting, time, weather, and star count labels. Readable on any bright or patterned wallpaper — same technique iOS uses for lock screen text.
+
+**SD card questions:**
+- Mounts `/sdcard` at boot using SDMMC slot 0 (separate from WiFi C6 which uses slot 1)
+- Reads `/sdcard/questions.csv` — no format required on the card, won't touch what's there
+- CSV lines append to the built-in banks (defaults always present)
+
+Create `questions.csv` on the SD card to add questions. Format:
+```
+# Addition
+ADD,7,8,15,14,16,0
+# Skip counting (step, 3 shown terms, 3 options, correct index)
+SKIP,6,6,12,18,24,30,36,0
+# Multiplication
+MULT,7,8,56,48,63,0
+```
+
+If the SD card isn't present or `questions.csv` doesn't exist, it silently falls back to built-ins. Check serial logs for `SD mounted:` or `SD mount failed` on boot.
+
+---
+
+## 2026-05-19 20:31:49
+
+**Prompt:** did we write all this progress and features into the vault?
+
+**Work done:** (completed 2026-05-19 20:43:15)
+
+Server up at port 8080. Trigger OTA from device: Admin → OTA Update → enter your laptop IP → Start.
+
+Summary of what changed:
+- WiFi card: 120→88px, fonts shrunk (28→24/20), button 130×64→110×50
+- Brightness card: 244→158px, value font 48→32, slider 48→36px thinner, labels 20→14
+- Volume card: same treatment as brightness
+- Stars card: 180→112px, value font 48→32, sub font 24→20
+- Both sliders use radius 18 (was 24) to match the thinner track
+
+---
+
+## 2026-05-19 20:46:07
+
+**Prompt:** the audio does not work or not playing anything.. did do an OTA and lot better sizes now.
+
+**Work done:** (completed 2026-05-19 20:48:26)
+
+OTA server up. Trigger from device: Admin → OTA Update → Start.
+
+What changed:
+- `I2S_STD_MSB_SLOT_DEFAULT_CONFIG` → `I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG` (amp expects standard Philips I2S, not MSB-justified)
+- `I2S_SLOT_MODE_MONO` → `I2S_SLOT_MODE_STEREO` (fills both L+R channels)
+- Buffer interleaves L/R, `n*4` bytes per note
+- Stack 4096 → 8192 for `sinf()` headroom
+
+---
+
+## 2026-05-19 20:49:09
+
+**Prompt:** every time we adjust volumen i would like to hear a beep at that volume
+
+**Work done:** (completed 2026-05-19 20:51:17)
+
+OTA ready. Trigger from device.
+
+What changed on legibility: each label now gets a **dark semi-transparent pill backdrop** (black, ~43% opacity, 8px radius, 10px h-pad) + stroke bumped to **5px full opacity**. The pill ensures contrast regardless of what's behind the text — bright sky, armor highlights, anything.
+
+If it still feels too "heavy" on the pill, can dial `bg_opa` down (110 is the value — range 0–255).
+
+---
+
+## 2026-05-19 20:57:10
+
+**Prompt:** it looks super odd. with the blocks behind them
+
+**Work done:** (completed 2026-05-19 20:57:58)
+
+OTA ready. Trigger from device.
+
+Pill gone. Photo now dims to ~59% (was 35%) — photo still visible but text readable. Stroke stays at 5px solid black halo. If photo still feels too dark, can walk it back to 120–130.
+
+---
+
+## 2026-05-19 21:14:10
+
+**Prompt:** yeah looks better.. and weather in the purple is the only thing is not so AI slop
+
+**Work done:** (completed 2026-05-19 21:15:10)
+
+OTA ready. Trigger from device.
+
+What changed:
+- **Greeting**: white font_32 → lavender (C_SUBTEXT) font_24, 60% opacity — same treatment as weather, they now read as a pair
+- **Time**: gold → `0xF0EFFF` (near-white with faint cool tint) — clean hero element, not "gold widget" cliché
+
+Three-tier hierarchy now: time (bright, large) > greeting (muted lavender, small) > weather (muted lavender, small). Photo reads through all of them.
+
+---
+
+## 2026-05-19 21:39:52
+
+**Prompt:** volume is still not audible at all.. whats happening did we solve for it .. 
+
+the time could be golden and little bigger please.
+
+**Work done:** (completed 2026-05-19 21:42:06)
+
+OTA ready. OTA it, then **open serial monitor** (`pio device monitor`) and tap an answer. Look for these lines:
+
+```
+I (xxx) kid_arcade: I2S audio ready        ← init worked
+I (xxx) kid_arcade: melody_task start freq=660   ← task ran
+```
+
+If you see `i2s_new_channel failed` or `i2s_channel_init_std_mode failed` — paste the error name and we'll know exactly what's broken.
+
+Time is back to gold at font_48 — that's the max size in sdkconfig, one step up would need a full rebuild with a new font enabled, just say the word.
+
+---
+
+## 2026-05-19 21:42:07
+
+**Prompt:** Run this Python snippet to refresh the Claude usage audit log in the vault:
+
+```python
+import json, datetime, os
+
+with open('/Users/sandi/.claude/stats-cache.json') as f:
+    data = json.load(f)
+
+now = datetime.datetime.now()
+time_str = now.strftime('%Y-%m-%d %H:%M CDT')
+daily = {d['date']: d for d in data.get('dailyActivity', [])}
+tokens = {d['date']: d.get('tokensByModel', {}) for d in data.get('dailyModelTokens', [])}
+hour_counts = data.get('hourCounts', {})
+
+lines = [
+    f"# Claude Usage Audit Log\n\n_Auto-generated from `~/.claude/stats-cache.json` · last updated {time_str}_\n\n---\n\n## Totals (all time)\n\n",
+    f"| Metric | Value |\n|---|---|\n| Total sessions | {data.get('totalSessions', 0)} |\n| Total messages | {data.get('totalMessages', 0):,} |\n| First session | {data.get('firstSessionDate', 'n/a')[:10]} |\n\n## Token usage by model\n\n| Model | Input | Output | Cache reads | Cache writes |\n|---|---|---|---|---|\n",
+]
+for model, m in sorted(data.get('modelUsage', {}).items()):
+    lines.append(f"| `{model}` | {m.get('inputTokens',0):,} | {m.get('outputTokens',0):,} | {m.get('cacheReadInputTokens',0):,} | {m.get('cacheCreationInputTokens',0):,} |\n")
+
+lines.append("\n## Daily activity\n\n| Date | Messages | Sessions | Tool calls | Tokens (sonnet) | Tokens (opus-4-7) | Tokens (haiku) |\n|---|---|---|---|---|---|---|\n")
+for date in sorted(set(list(daily.keys()) + list(tokens.keys()))):
+    d = daily.get(date, {}); t = tokens.get(date, {})
+    lines.append(f"| {date} | {d.get('messageCount',0):,} | {d.get('sessionCount',0)} | {d.get('toolCallCount',0):,} | {t.get('claude-sonnet-4-6',0):,} | {t.get('claude-opus-4-7',0):,} | {t.get('claude-haiku-4-5-20251001',0):,} |\n")
+
+lines.append("\n## Active hours (local time)\n\n| Hour | Session starts |\n|---|---|\n")
+for h in sorted(hour_counts.keys(), key=int):
+    cnt = hour_counts[h]; bar = '█' * min(cnt, 30)
+    lines.append(f"| {int(h):02d}:00 | {bar} {cnt} |\n")
+lines.append(f"\n---\n_Updated: {time_str}_\n")
+
+out = "/Users/sandi/Library/CloudStorage/GoogleDrive-gsandi37@gmail.com/My Drive/obsidian_notes/personal/claude-usage-audit.md"
+with open(out, 'w') as f: f.writelines(lines)
+print(f"Vault audit log updated: {out}")
+```
+
+Execute this via Bash tool and confirm "Vault audit log updated".
+
+**Work done:** (completed 2026-05-19 21:43:47)
+
+Vault audit log updated.
+
+---
+
+## 2026-05-19 21:44:35
+
+**Prompt:** update the background image to ~/Downloads/eevee_pikachu.jpg remember the resolution and orientation .. is it written some where
+
+**Work done:** (completed 2026-05-19 21:45:39)
+
+OTA ready. Source was 1200×1403 → scaled to 875×1024 → center-cropped to 600×1024 portrait. Same format as before.
+
+---
+
+Yes — volume beep is already in this build. When you lift your finger off the volume slider (`RELEASED` event), it plays `SND_BEEP` (880Hz, 80ms) at whatever volume you just set. That's the OTA you need to verify audio works on first.
+
+---
+
+## 2026-05-19 21:49:17
+
+**Prompt:** sound is still not functional.. how can u ensure that this works.. do a deep research look across the code and other things on the internet too
+
+**Work done:** *(in progress)*
+
+---
+
+## 2026-05-20 21:48:31
+
+**Prompt:** Run this Python snippet to refresh the Claude usage audit log in the vault:
+
+```python
+import json, datetime, os
+
+with open('/Users/sandi/.claude/stats-cache.json') as f:
+    data = json.load(f)
+
+now = datetime.datetime.now()
+time_str = now.strftime('%Y-%m-%d %H:%M CDT')
+daily = {d['date']: d for d in data.get('dailyActivity', [])}
+tokens = {d['date']: d.get('tokensByModel', {}) for d in data.get('dailyModelTokens', [])}
+hour_counts = data.get('hourCounts', {})
+
+lines = [
+    f"# Claude Usage Audit Log\n\n_Auto-generated from `~/.claude/stats-cache.json` · last updated {time_str}_\n\n---\n\n## Totals (all time)\n\n",
+    f"| Metric | Value |\n|---|---|\n| Total sessions | {data.get('totalSessions', 0)} |\n| Total messages | {data.get('totalMessages', 0):,} |\n| First session | {data.get('firstSessionDate', 'n/a')[:10]} |\n\n## Token usage by model\n\n| Model | Input | Output | Cache reads | Cache writes |\n|---|---|---|---|---|\n",
+]
+for model, m in sorted(data.get('modelUsage', {}).items()):
+    lines.append(f"| `{model}` | {m.get('inputTokens',0):,} | {m.get('outputTokens',0):,} | {m.get('cacheReadInputTokens',0):,} | {m.get('cacheCreationInputTokens',0):,} |\n")
+
+lines.append("\n## Daily activity\n\n| Date | Messages | Sessions | Tool calls | Tokens (sonnet) | Tokens (opus-4-7) | Tokens (haiku) |\n|---|---|---|---|---|---|---|\n")
+for date in sorted(set(list(daily.keys()) + list(tokens.keys()))):
+    d = daily.get(date, {}); t = tokens.get(date, {})
+    lines.append(f"| {date} | {d.get('messageCount',0):,} | {d.get('sessionCount',0)} | {d.get('toolCallCount',0):,} | {t.get('claude-sonnet-4-6',0):,} | {t.get('claude-opus-4-7',0):,} | {t.get('claude-haiku-4-5-20251001',0):,} |\n")
+
+lines.append("\n## Active hours (local time)\n\n| Hour | Session starts |\n|---|---|\n")
+for h in sorted(hour_counts.keys(), key=int):
+    cnt = hour_counts[h]; bar = '█' * min(cnt, 30)
+    lines.append(f"| {int(h):02d}:00 | {bar} {cnt} |\n")
+lines.append(f"\n---\n_Updated: {time_str}_\n")
+
+out = "/Users/sandi/Library/CloudStorage/GoogleDrive-gsandi37@gmail.com/My Drive/obsidian_notes/personal/claude-usage-audit.md"
+with open(out, 'w') as f: f.writelines(lines)
+print(f"Vault audit log updated: {out}")
+```
+
+Execute this via Bash tool and confirm "Vault audit log updated".
+
+**Work done:** *(in progress)*
+
+---
+
+## 2026-07-18 13:53:07
+
+**Prompt:** the current branch of esp32 hosyond?
+
+**Work done:** (completed 2026-07-18 13:53:21)
+
+*(no text response captured)*
+
+---
+
+## 2026-07-18 13:53:44
+
+**Prompt:** commit the uhcommitted p4 branch after quick verification
+
 **Work done:** *(in progress)*

@@ -733,6 +733,13 @@ static void volume_load(void) {
     g_volume = v;
 }
 
+struct Note { uint32_t freq; uint32_t ms; };
+static const Note SND_CORRECT[]  = {{660, 110}, {880, 180}, {0, 0}};
+static const Note SND_WRONG[]    = {{196, 340}, {0, 0}};
+static const Note SND_COMPLETE[] = {{523, 90}, {659, 90}, {784, 90}, {1047, 340}, {0, 0}};
+static const Note SND_BEEP[]     = {{880, 80}, {0, 0}};
+static void audio_play(const Note* seq);
+
 static void on_volume_slider(lv_event_t* e) {
     lv_obj_t* sld  = (lv_obj_t*)lv_event_get_target(e);
     lv_obj_t* lbl  = (lv_obj_t*)lv_event_get_user_data(e);
@@ -743,7 +750,10 @@ static void on_volume_slider(lv_event_t* e) {
         snprintf(b, sizeof(b), "%d%%", v);
         lv_label_set_text(lbl, b);
     }
-    if (lv_event_get_code(e) == LV_EVENT_RELEASED) volume_save();
+    if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
+        volume_save();
+        audio_play(SND_BEEP);
+    }
 }
 
 // ── Random helper ─────────────────────────────────────────────────────────────
@@ -891,12 +901,6 @@ static void prepare_question(void) {
 }
 
 // ── Forward declarations ──────────────────────────────────────────────────────
-// Audio forward decls (implementation before preload_bg_image)
-struct Note { uint32_t freq; uint32_t ms; };
-static const Note SND_CORRECT[]  = {{660, 110}, {880, 180}, {0, 0}};
-static const Note SND_WRONG[]    = {{196, 340}, {0, 0}};
-static const Note SND_COMPLETE[] = {{523, 90}, {659, 90}, {784, 90}, {1047, 340}, {0, 0}};
-static void audio_play(const Note* seq);
 
 static void show_home(void);
 static void launch_arcade(void);
@@ -930,8 +934,8 @@ static lv_obj_t* make_label(lv_obj_t* parent, const char* txt,
 // Dark outline around text so it reads on any wallpaper.
 static void apply_wallpaper_stroke(lv_obj_t* lbl) {
     lv_obj_set_style_text_outline_stroke_color(lbl, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_text_outline_stroke_width(lbl, 3, 0);
-    lv_obj_set_style_text_outline_stroke_opa(lbl, 210, 0);
+    lv_obj_set_style_text_outline_stroke_width(lbl, 5, 0);
+    lv_obj_set_style_text_outline_stroke_opa(lbl, LV_OPA_COVER, 0);
 }
 
 // Transparent flex column — used instead of absolute x/y for centered stacks.
@@ -1260,7 +1264,7 @@ static void show_home(void) {
     lv_obj_remove_flag(bg, LV_OBJ_FLAG_CLICKABLE);
     // Uniform dark tint over the photo — no band, just consistent dimming
     lv_obj_set_style_image_recolor(bg, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_image_recolor_opa(bg, 90, 0);   // ~35% darkening
+    lv_obj_set_style_image_recolor_opa(bg, 150, 0);  // ~59% darkening
 
     // ── Top 20%: status bar + greeting widget (~205px) ────────────────────
     // Status bar: transparent 60px, stars left, long-press → admin
@@ -1295,12 +1299,13 @@ static void show_home(void) {
     }
 
     // Greeting + time (save refs for live updates)
-    g_home_greet_lbl = make_label(scr, init_greet, &lv_font_montserrat_32, C_CARD_TXT);
-    lv_obj_align(g_home_greet_lbl, LV_ALIGN_TOP_MID, 0, 76);
+    g_home_greet_lbl = make_label(scr, init_greet, &lv_font_montserrat_24, C_SUBTEXT);
+    lv_obj_set_style_opa(g_home_greet_lbl, LV_OPA_60, 0);
+    lv_obj_align(g_home_greet_lbl, LV_ALIGN_TOP_MID, 0, 84);
     apply_wallpaper_stroke(g_home_greet_lbl);
 
     g_home_time_lbl = make_label(scr, init_time, &lv_font_montserrat_48, C_GOLD);
-    lv_obj_align(g_home_time_lbl, LV_ALIGN_TOP_MID, 0, 122);
+    lv_obj_align(g_home_time_lbl, LV_ALIGN_TOP_MID, 0, 120);
     apply_wallpaper_stroke(g_home_time_lbl);
 
     const char* w_init = g_weather_buf[0] ? g_weather_buf : "Connect WiFi for weather";
@@ -1379,32 +1384,32 @@ static void launch_settings(void) {
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
     // ── Header ────────────────────────────────────────────────────────────
-    lv_obj_t* hdr = make_header(scr, 88);
+    lv_obj_t* hdr = make_header(scr, 72);
     lv_obj_t* back_btn = lv_button_create(hdr);
-    lv_obj_set_size(back_btn, 64, 56);
+    lv_obj_set_size(back_btn, 56, 48);
     lv_obj_align(back_btn, LV_ALIGN_LEFT_MID, 14, 0);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN), 0);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(back_btn, 14, 0);
+    lv_obj_set_style_radius(back_btn, 12, 0);
     lv_obj_set_style_border_width(back_btn, 0, 0);
     lv_obj_set_style_shadow_width(back_btn, 0, 0);
     lv_obj_t* back_lbl = lv_label_create(back_btn);
     lv_label_set_text(back_lbl, "<");
-    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_font(back_lbl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(back_lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_center(back_lbl);
     lv_obj_add_event_cb(back_btn, on_back_to_launcher, LV_EVENT_CLICKED, NULL);
-    lv_obj_t* hl = make_label(hdr, "Settings", &lv_font_montserrat_32, C_GOLD);
+    lv_obj_t* hl = make_label(hdr, "Settings", &lv_font_montserrat_28, C_GOLD);
     lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
 
-    // ── Scrollable content column (transparent so mountain bg shows through)
+    // ── Scrollable content column ─────────────────────────────────────────
     lv_obj_t* col = lv_obj_create(scr);
-    lv_obj_set_size(col, 552, SCR_H - 112);
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 100);
+    lv_obj_set_size(col, 552, SCR_H - 84);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 80);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
     lv_obj_set_style_pad_all(col, 0, 0);
-    lv_obj_set_style_pad_row(col, 16, 0);
+    lv_obj_set_style_pad_row(col, 8, 0);
     lv_obj_set_layout(col, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
@@ -1413,7 +1418,7 @@ static void launch_settings(void) {
     auto make_section = [&](const char* name) {
         lv_obj_t* lbl = lv_label_create(col);
         lv_label_set_text(lbl, name);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(C_SUBTEXT), 0);
         lv_obj_set_width(lbl, 552);
         lv_obj_t* rule = lv_obj_create(col);
@@ -1446,7 +1451,7 @@ static void launch_settings(void) {
 
     // ── NETWORK ──────────────────────────────────────────────────────────
     make_section("NETWORK");
-    lv_obj_t* wifi_card = make_card(120);
+    lv_obj_t* wifi_card = make_card(88);
     lv_obj_set_style_pad_left(wifi_card, 24, 0);
     lv_obj_set_style_pad_right(wifi_card, 20, 0);
 
@@ -1468,24 +1473,24 @@ static void launch_settings(void) {
     snprintf(ssid_buf, sizeof(ssid_buf), "%s", g_wifi_ssid[0] ? g_wifi_ssid : "No network saved");
     lv_obj_t* ssid_lbl = lv_label_create(wifi_card);
     lv_label_set_text(ssid_lbl, ssid_buf);
-    lv_obj_set_style_text_font(ssid_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(ssid_lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(ssid_lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_set_style_max_width(ssid_lbl, 300, 0);
     lv_label_set_long_mode(ssid_lbl, LV_LABEL_LONG_DOT);
-    lv_obj_align(ssid_lbl, LV_ALIGN_LEFT_MID, 42, -18);
+    lv_obj_align(ssid_lbl, LV_ALIGN_LEFT_MID, 42, -14);
 
     char wifi_st[32];
     snprintf(wifi_st, sizeof(wifi_st), "%s",
              g_wifi_connected ? "Connected" : (g_wifi_ssid[0] ? "Not connected" : "Tap to set up"));
     g_settings_wifi_lbl = lv_label_create(wifi_card);
     lv_label_set_text(g_settings_wifi_lbl, wifi_st);
-    lv_obj_set_style_text_font(g_settings_wifi_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(g_settings_wifi_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(g_settings_wifi_lbl,
         lv_color_hex(g_wifi_connected ? C_CORRECT : C_SUBTEXT), 0);
-    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 42, 18);
+    lv_obj_align(g_settings_wifi_lbl, LV_ALIGN_LEFT_MID, 42, 14);
 
     lv_obj_t* chg_btn = lv_button_create(wifi_card);
-    lv_obj_set_size(chg_btn, 130, 64);
+    lv_obj_set_size(chg_btn, 110, 50);
     lv_obj_align(chg_btn, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x005FAD), 0);
     lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
@@ -1494,7 +1499,7 @@ static void launch_settings(void) {
     lv_obj_set_style_shadow_width(chg_btn, 0, 0);
     lv_obj_t* chg_lbl = lv_label_create(chg_btn);
     lv_label_set_text(chg_lbl, g_wifi_connected ? "Change" : "Connect");
-    lv_obj_set_style_text_font(chg_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(chg_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(chg_lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(chg_lbl);
     lv_obj_add_event_cb(chg_btn, [](lv_event_t*) {
@@ -1504,79 +1509,79 @@ static void launch_settings(void) {
 
     // ── DISPLAY ──────────────────────────────────────────────────────────
     make_section("DISPLAY");
-    lv_obj_t* br_card = make_card(244);
+    lv_obj_t* br_card = make_card(158);
 
     lv_obj_t* br_title = lv_label_create(br_card);
     lv_label_set_text(br_title, "Brightness");
-    lv_obj_set_style_text_font(br_title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(br_title, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(br_title, lv_color_hex(C_CARD_TXT), 0);
-    lv_obj_align(br_title, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_align(br_title, LV_ALIGN_TOP_MID, 0, 14);
 
     char br_buf[16];
     snprintf(br_buf, sizeof(br_buf), "%d%%", (int)g_brightness);
     lv_obj_t* br_val = lv_label_create(br_card);
     lv_label_set_text(br_val, br_buf);
-    lv_obj_set_style_text_font(br_val, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(br_val, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(br_val, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(br_val, LV_ALIGN_TOP_MID, 0, 72);
+    lv_obj_align(br_val, LV_ALIGN_TOP_MID, 0, 44);
 
     lv_obj_t* sld = lv_slider_create(br_card);
-    lv_obj_set_size(sld, 460, 48);
-    lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -58);
+    lv_obj_set_size(sld, 460, 36);
+    lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -38);
     lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
     lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(sld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
-    lv_obj_set_style_radius(sld, 24, LV_PART_MAIN);
+    lv_obj_set_style_radius(sld, 18, LV_PART_MAIN);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_GOLD), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_STAR), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(sld, 14, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(sld, 10, LV_PART_KNOB);
     lv_obj_set_style_radius(sld, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_shadow_width(sld, 12, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(sld, 8, LV_PART_KNOB);
     lv_obj_set_style_shadow_color(sld, lv_color_hex(0x000000), LV_PART_KNOB);
     lv_obj_set_style_shadow_opa(sld, 80, LV_PART_KNOB);
     lv_obj_add_event_cb(sld, on_brightness_slider, LV_EVENT_VALUE_CHANGED, br_val);
 
     lv_obj_t* dim_lbl = lv_label_create(br_card);
     lv_label_set_text(dim_lbl, "dim");
-    lv_obj_set_style_text_font(dim_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(dim_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(dim_lbl, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(dim_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -10);
+    lv_obj_align(dim_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -7);
 
     lv_obj_t* brt_lbl = lv_label_create(br_card);
     lv_label_set_text(brt_lbl, "bright");
-    lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(brt_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(brt_lbl, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -10);
+    lv_obj_align(brt_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -7);
 
     // ── VOLUME ────────────────────────────────────────────────────────────
-    lv_obj_t* vol_card = make_card(244);
+    lv_obj_t* vol_card = make_card(158);
 
     lv_obj_t* vol_title = lv_label_create(vol_card);
     lv_label_set_text(vol_title, "Volume");
-    lv_obj_set_style_text_font(vol_title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(vol_title, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(vol_title, lv_color_hex(C_CARD_TXT), 0);
-    lv_obj_align(vol_title, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_align(vol_title, LV_ALIGN_TOP_MID, 0, 14);
 
     char vol_buf[8];
     snprintf(vol_buf, sizeof(vol_buf), "%d%%", (int)g_volume);
     lv_obj_t* vol_val = lv_label_create(vol_card);
     lv_label_set_text(vol_val, vol_buf);
-    lv_obj_set_style_text_font(vol_val, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(vol_val, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(vol_val, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(vol_val, LV_ALIGN_TOP_MID, 0, 72);
+    lv_obj_align(vol_val, LV_ALIGN_TOP_MID, 0, 44);
 
     lv_obj_t* vsld = lv_slider_create(vol_card);
-    lv_obj_set_size(vsld, 460, 48);
-    lv_obj_align(vsld, LV_ALIGN_BOTTOM_MID, 0, -58);
+    lv_obj_set_size(vsld, 460, 36);
+    lv_obj_align(vsld, LV_ALIGN_BOTTOM_MID, 0, -38);
     lv_slider_set_range(vsld, 0, 100);
     lv_slider_set_value(vsld, g_volume, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(vsld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
-    lv_obj_set_style_radius(vsld, 24, LV_PART_MAIN);
+    lv_obj_set_style_radius(vsld, 18, LV_PART_MAIN);
     lv_obj_set_style_bg_color(vsld, lv_color_hex(C_BTN_ALT), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(vsld, lv_color_hex(0xBBAAFF), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(vsld, 14, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(vsld, 10, LV_PART_KNOB);
     lv_obj_set_style_radius(vsld, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_shadow_width(vsld, 12, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(vsld, 8, LV_PART_KNOB);
     lv_obj_set_style_shadow_color(vsld, lv_color_hex(0x000000), LV_PART_KNOB);
     lv_obj_set_style_shadow_opa(vsld, 80, LV_PART_KNOB);
     lv_obj_add_event_cb(vsld, on_volume_slider, LV_EVENT_VALUE_CHANGED, vol_val);
@@ -1584,33 +1589,33 @@ static void launch_settings(void) {
 
     lv_obj_t* quiet_lbl = lv_label_create(vol_card);
     lv_label_set_text(quiet_lbl, "quiet");
-    lv_obj_set_style_text_font(quiet_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(quiet_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(quiet_lbl, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(quiet_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -10);
+    lv_obj_align(quiet_lbl, LV_ALIGN_BOTTOM_LEFT, 28, -7);
 
     lv_obj_t* loud_lbl = lv_label_create(vol_card);
     lv_label_set_text(loud_lbl, "loud");
-    lv_obj_set_style_text_font(loud_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(loud_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(loud_lbl, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(loud_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -10);
+    lv_obj_align(loud_lbl, LV_ALIGN_BOTTOM_RIGHT, -28, -7);
 
     // ── YOUR STARS ────────────────────────────────────────────────────────
     make_section("YOUR STARS");
-    lv_obj_t* star_card = make_card(180);
+    lv_obj_t* star_card = make_card(112);
 
     char total_buf[24];
     snprintf(total_buf, sizeof(total_buf), "%ld", (long)g_stars);
     lv_obj_t* total_lbl = lv_label_create(star_card);
     lv_label_set_text(total_lbl, total_buf);
-    lv_obj_set_style_text_font(total_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(total_lbl, &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(total_lbl, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(total_lbl, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(total_lbl, LV_ALIGN_CENTER, 0, -6);
 
     lv_obj_t* star_sub = lv_label_create(star_card);
     lv_label_set_text(star_sub, "stars earned");
-    lv_obj_set_style_text_font(star_sub, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(star_sub, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(star_sub, lv_color_hex(C_SUBTEXT), 0);
-    lv_obj_align(star_sub, LV_ALIGN_CENTER, 0, 42);
+    lv_obj_align(star_sub, LV_ALIGN_CENTER, 0, 24);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
     lvgl_port_unlock();
@@ -2482,20 +2487,24 @@ static i2s_chan_handle_t g_i2s_tx = NULL;
 
 static void melody_task(void* arg) {
     Note* notes = (Note*)arg;
+    ESP_LOGI(TAG, "melody_task start freq=%lu", (unsigned long)notes[0].freq);
     for (int i = 0; notes[i].freq; i++) {
-        int n    = (AUDIO_SAMPLE_RATE * (int)notes[i].ms) / 1000;
-        int16_t* buf = (int16_t*)malloc(n * 2);
+        int n = (AUDIO_SAMPLE_RATE * (int)notes[i].ms) / 1000;
+        // stereo: L + R per frame = n * 4 bytes
+        int16_t* buf = (int16_t*)malloc((size_t)n * 4);
         if (!buf) break;
-        int fade = AUDIO_SAMPLE_RATE / 50;  // 20ms fade
+        int fade = AUDIO_SAMPLE_RATE / 50;
         for (int s = 0; s < n; s++) {
             float env = (s < fade) ? (float)s / fade
                       : (s > n - fade) ? (float)(n - s) / fade : 1.0f;
-            buf[s] = (int16_t)(sinf(2.f * (float)M_PI * notes[i].freq * s
-                                    / AUDIO_SAMPLE_RATE) * 26000.f * env
-                               * ((float)g_volume / 100.f));
+            int16_t sample = (int16_t)(sinf(2.f * (float)M_PI * notes[i].freq * s
+                                           / AUDIO_SAMPLE_RATE) * 26000.f * env
+                                      * ((float)g_volume / 100.f));
+            buf[s * 2]     = sample;  // L
+            buf[s * 2 + 1] = sample;  // R
         }
         size_t wr;
-        i2s_channel_write(g_i2s_tx, buf, (size_t)(n * 2), &wr, pdMS_TO_TICKS(600));
+        i2s_channel_write(g_i2s_tx, buf, (size_t)n * 4, &wr, pdMS_TO_TICKS(600));
         free(buf);
     }
     free(arg);
@@ -2509,7 +2518,7 @@ static void audio_play(const Note* seq) {
     Note* copy = (Note*)malloc((size_t)(n + 1) * sizeof(Note));
     if (!copy) return;
     memcpy(copy, seq, (size_t)(n + 1) * sizeof(Note));
-    xTaskCreate(melody_task, "audio", 4096, copy, 5, NULL);
+    xTaskCreate(melody_task, "audio", 8192, copy, 5, NULL);
 }
 
 static void audio_init(void) {
@@ -2518,14 +2527,19 @@ static void audio_init(void) {
     pa.mode           = GPIO_MODE_OUTPUT;
     gpio_config(&pa);
     gpio_set_level(AUDIO_PA_EN, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));  // amp settling time
 
-    i2s_chan_config_t ch_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    i2s_new_channel(&ch_cfg, &g_i2s_tx, NULL);
+    i2s_chan_config_t ch_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+    esp_err_t ret = i2s_new_channel(&ch_cfg, &g_i2s_tx, NULL);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(ret));
+        return;
+    }
 
     i2s_std_config_t std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
-                                                    I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
+                                                       I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk         = I2S_GPIO_UNUSED,
             .bclk         = AUDIO_I2S_BCLK,
@@ -2535,8 +2549,20 @@ static void audio_init(void) {
             .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false},
         },
     };
-    i2s_channel_init_std_mode(g_i2s_tx, &std_cfg);
-    i2s_channel_enable(g_i2s_tx);
+    ret = i2s_channel_init_std_mode(g_i2s_tx, &std_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "i2s_channel_init_std_mode failed: %s", esp_err_to_name(ret));
+        i2s_del_channel(g_i2s_tx);
+        g_i2s_tx = NULL;
+        return;
+    }
+    ret = i2s_channel_enable(g_i2s_tx);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "i2s_channel_enable failed: %s", esp_err_to_name(ret));
+        i2s_del_channel(g_i2s_tx);
+        g_i2s_tx = NULL;
+        return;
+    }
     ESP_LOGI(TAG, "I2S audio ready");
 }
 
