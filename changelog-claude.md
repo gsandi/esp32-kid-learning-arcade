@@ -3923,3 +3923,23 @@ Build pass. Commit now.
 **Prompt:** push the code to branch and switch the hosyond main branch
 
 **Work done:** *(in progress)*
+
+## 2026-09-05 — 7-inch setup guide + missing component dependency
+
+**Prompt:** "deploy the blog and work on the setup guide"
+
+- Added a **7-inch version (ESP32-P4)** section to `README.md`: what differs from
+  the 4-inch build, cloning the branch, finding the serial port, `./flash.sh`,
+  first-boot C6 streaming behaviour, the SD-card CSV format, OTA via
+  `ota_push.sh`, and a P4-specific troubleshooting table. Added a pointer to it
+  from the top of the README.
+- **Fixed a build blocker:** `src/CMakeLists.txt` REQUIRES `esp_lvgl_port` and
+  `main.cpp` calls `lvgl_port_lock()`, but the component was neither declared in
+  `src/idf_component.yml` nor vendored under `managed_components/`. A clean clone
+  of this branch would fail with "Failed to resolve component esp_lvgl_port".
+  Now declared with the same `idf_target == esp32p4` rule as the other P4 deps.
+- Known rough edge, documented rather than changed: `platformio.ini` hardcodes
+  `upload_port = /dev/cu.wchusbserial10`, which is machine-specific. The guide
+  tells readers to edit it or pass a port to `flash.sh`.
+- **Not yet verified by a clean-clone build.** The dependency fix is derived from
+  the CMake REQUIRES list, not from a successful build on a fresh checkout.

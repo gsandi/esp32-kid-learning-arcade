@@ -15,6 +15,11 @@ A pocket-sized **offline** learning toy for kindergarten and pre-first-grade kid
 
 ---
 
+> **Two versions exist.** This README walks through the $25 4-inch build, which is
+> the one to start with. There is also a 7-inch ESP32-P4 build with capacitive
+> touch, sound, Wi-Fi and OTA updates — see [The 7-inch version](#the-7-inch-version-esp32-p4)
+> below.
+
 ## Who this is for
 
 A parent or hobbyist who wants to build a simple offline learning toy for their kid in an afternoon. **No prior coding or electronics experience required** — if you can copy-paste a few lines into the Terminal app on your Mac, you can build one.
@@ -189,6 +194,132 @@ Adding a question is one line of code per bank. Re-flash with `pio run -t upload
 All settings survive power cycles.
 
 ---
+
+## The 7-inch version (ESP32-P4)
+
+Everything above builds the $25 4-inch toy, and that is still the one to build
+first. This section covers the bigger sibling: the same game on an Elecrow
+CrowPanel Advanced 7" ESP32-P4, with a capacitive screen, sound, Wi-Fi and
+over-the-air updates.
+
+It is a harder build. Budget an evening rather than an afternoon, and read the
+whole section before you start.
+
+### What's different
+
+| | 4-inch | 7-inch |
+|---|---|---|
+| Board | Hosyond ESP32-32E, ~$25 | Elecrow CrowPanel Advanced 7" ESP32-P4 HMI, ~$60–70 |
+| Display | 320×480 SPI | 1024×600 MIPI DSI, mounted portrait |
+| Touch | XPT2046 resistive, **needs calibration** | GT911 capacitive, **no calibration at all** |
+| Framework | Arduino-style / PlatformIO | ESP-IDF + LVGL 9 |
+| Radio | none | separate ESP32-C6 co-processor over SDIO |
+| Extras | — | sound, SD card question bank, OTA updates |
+
+The two things worth knowing up front: **capacitive touch means the calibration
+ritual from Step 5 disappears entirely**, and **the P4 has no radio of its own**,
+so Wi-Fi runs on a second chip that needs its own firmware. Both are handled
+below.
+
+### Step 1 — Get the code
+
+```bash
+git clone https://github.com/gsandi/esp32-kid-learning-arcade.git
+cd esp32-kid-learning-arcade
+git checkout feat/esp32-p4
+```
+
+The P4 build lives on that branch, not on `main`. Everything it needs is
+committed: the custom board definition (`boards/elecrow_crowpanel_p4_7.json`),
+the partition table, and the prebuilt ESP32-C6 firmware under `c6_slave_fw/`.
+The display, touch and LVGL components are fetched automatically on first build
+by the ESP-IDF component manager, so the first build takes noticeably longer
+than later ones.
+
+If you have not built the 4-inch version, run `./scripts/setup-macos.sh` first to
+get Homebrew and PlatformIO.
+
+### Step 2 — Find your serial port, and set it
+
+**This is the step people get stuck on.** The board has **two USB-C ports** and
+nothing on the silkscreen says which is which. Only one is the UART/flash port.
+If the board will not take firmware, try the other port before you debug anything
+else.
+
+With the board plugged in, list the ports:
+
+```bash
+ls /dev/cu.*
+```
+
+`platformio.ini` currently hardcodes `upload_port = /dev/cu.wchusbserial10`,
+which is almost certainly not what your Mac calls it. Either edit that line to
+match, or pass your port to the flash script in the next step, which overrides
+it.
+
+### Step 3 — Flash both chips
+
+```bash
+./flash.sh /dev/cu.YOURPORT
+```
+
+That one command builds the firmware, flashes the P4, and then writes the
+ESP32-C6 network firmware into the `slave_fw` partition at `0x10000`. Run it with
+no argument and it falls back to the hardcoded port from `platformio.ini`.
+
+**The first boot looks like a hang, and is not.** The P4 streams the C6 firmware
+across SDIO on that first startup, which takes about 30 seconds, and then the
+board restarts on its own. Wi-Fi only works from the second boot onward. Let it
+finish before concluding anything is broken.
+
+Then unplug it and run it off any USB phone charger, same as the small one.
+
+### Step 4 — There is no step 4
+
+No touch calibration. The panel is capacitive, so it already knows where your
+finger is. This is the single biggest quality-of-life difference between the two
+builds.
+
+### Optional: questions from an SD card
+
+Drop a `questions.csv` on a FAT-formatted card and the device **appends** those
+questions to the built-in ones at boot. It never replaces them, so a missing or
+malformed card costs you nothing and the toy always works.
+
+Three line types are recognised, all integers after the prefix:
+
+```
+ADD,7,8,15,14,16,0         # 7+8, options 15/14/16, last field = index of the correct one
+SKIP,6,6,12,18,24,30,36,0  # skip-count by 6
+MULT,7,8,56,48,63,0        # 7x8, options 56/48/63
+```
+
+Anything else in the file is ignored. A new topic at school means editing a text
+file on a card, with no laptop and no reflash.
+
+### Optional: over-the-air updates
+
+Once the device has Wi-Fi, you rarely need the cable again:
+
+```bash
+./ota_push.sh
+```
+
+That builds the firmware and serves it over HTTP on port 8080, printing your
+machine's IP addresses. On the device, go to **Admin → OTA Update**, enter that
+IP, and start it. The device pulls the new firmware into the spare app partition
+and reboots into it. A tweak while the kid is mid-round takes about two minutes.
+
+### 7-inch troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Board never appears in `ls /dev/cu.*` | You are in the wrong USB-C port of the two. Try the other one, then try a different cable — many USB-C cables are charge-only. |
+| `flash.sh` prints `WARNING: c6_slave_fw/network_adapter.bin not found` | You are on `main`, not `feat/esp32-p4`. Check out the branch. |
+| Build fails resolving a component | Delete `managed_components/` and `dependencies.lock`, then rebuild so the component manager re-resolves from scratch. |
+| First boot seems frozen for ~30s | Expected. The P4 is flashing the C6 over SDIO. It restarts itself when done. |
+| Wi-Fi finds no networks on first boot | Also expected. Power-cycle once; the radio comes up from the second boot. |
+| SD card only fails when Wi-Fi is on | Known conflict: the C6 link and the SD card share one SDMMC host. The fix is already in `src/main.cpp`; if you have modified the init order, put it back. |
 
 ## Troubleshooting
 

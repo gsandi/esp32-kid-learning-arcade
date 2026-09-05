@@ -24,3 +24,11 @@ dependencies:
     version: "*"
     rules:
       - if: "idf_target == esp32p4"
+
+  ## LVGL <-> esp_lcd glue: display/touch registration and the lvgl_port_lock()
+  ## mutex main.cpp uses around every UI mutation. Required by src/CMakeLists.txt;
+  ## without it a clean checkout fails at "Failed to resolve component esp_lvgl_port".
+  espressif/esp_lvgl_port:
+    version: "*"
+    rules:
+      - if: "idf_target == esp32p4"
