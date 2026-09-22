@@ -1,5 +1,7 @@
 #include "voice_notes.h"
 
+#include "app_audio.h"
+
 #include "driver/i2s_pdm.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
@@ -31,6 +33,7 @@ constexpr char PHONE_META[] = "vnmeta";
 constexpr char PHONE_DEST_KEY[] = "dest";
 constexpr char BOUNDARY[] = "----rockyArcadeVoiceNote";
 constexpr size_t MAX_SYNC_FILES = 64;
+constexpr size_t MAX_LIBRARY_NOTES = 32;
 
 i2s_chan_handle_t s_rx = nullptr;
 bool s_audio_ready = false;
@@ -61,11 +64,16 @@ lv_obj_t* s_record_button_label = nullptr;
 lv_obj_t* s_duration_label = nullptr;
 lv_obj_t* s_status_label = nullptr;
 lv_obj_t* s_count_label = nullptr;
+lv_obj_t* s_library = nullptr;
 lv_event_cb_t s_home_cb = nullptr;
 uint32_t s_message_until = 0;
 char s_message[64] = {};
 
 char s_sync_files[MAX_SYNC_FILES][64] = {};
+char s_library_files[MAX_LIBRARY_NOTES][64] = {};
+lv_obj_t* s_library_play_labels[MAX_LIBRARY_NOTES] = {};
+size_t s_library_count = 0;
+int s_playing_note = -1;
 
 void put_le16(FILE* file, uint16_t value) {
     uint8_t b[2] = {(uint8_t)value, (uint8_t)(value >> 8)};
@@ -230,7 +238,7 @@ void record_task(void*) {
 }
 
 void begin_recording(void) {
-    if (!s_available || s_recording || s_sync_busy) return;
+    if (!s_available || s_recording || s_sync_busy || audio_wav_playing()) return;
     build_filename(s_active_path, sizeof(s_active_path));
     s_stop_requested = false;
     s_started_tick = lv_tick_get();
@@ -271,7 +279,7 @@ bool upload_file(const char* host, const char* token, const char* filename) {
     char head[520];
     int head_len = snprintf(head, sizeof(head),
         "--%s\r\nContent-Disposition: form-data; name=\"device\"\r\n\r\n"
-        "Rocky Arcade\r\n--%s\r\nContent-Disposition: form-data; name=\"timestamp\"\r\n\r\n"
+        "Rocky Desk\r\n--%s\r\nContent-Disposition: form-data; name=\"timestamp\"\r\n\r\n"
         "%ld\r\n--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n"
         "Content-Type: audio/wav\r\n\r\n",
         BOUNDARY, BOUNDARY, timestamp_from_name(filename), BOUNDARY, filename);
@@ -333,6 +341,19 @@ bool upload_file(const char* host, const char* token, const char* filename) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     return ok;
+}
+
+bool upload_to_phone(const char* destinations, const char* token, const char* filename) {
+    char candidates[sizeof(s_sync_host)];
+    snprintf(candidates, sizeof(candidates), "%s", destinations);
+    char* state = nullptr;
+    for (char* host = strtok_r(candidates, "|", &state);
+         host; host = strtok_r(nullptr, "|", &state)) {
+        if (!host[0]) continue;
+        ESP_LOGI(TAG, "trying phone note receiver at %s", host);
+        if (upload_file(host, token, filename)) return true;
+    }
+    return false;
 }
 
 // Phone delivery is destination-specific. The S3 implementation already does
@@ -431,7 +452,7 @@ void sync_task(void*) {
             ledger_key(s_sync_files[i], key);
             uint8_t sent = 0;
             if (nvs_get_u8(ledger, key, &sent) == ESP_OK && sent) continue;
-            bool delivered = upload_file(host, token, s_sync_files[i]);
+            bool delivered = upload_to_phone(host, token, s_sync_files[i]);
             ++completed;
             s_sync_completed = completed;
             if (delivered) {
@@ -462,6 +483,116 @@ lv_obj_t* make_label(lv_obj_t* parent, const char* text, const lv_font_t* font,
     return label;
 }
 
+void update_library_play_labels(void) {
+    bool playing = audio_wav_playing();
+    for (size_t i = 0; i < s_library_count; ++i) {
+        if (!s_library_play_labels[i]) continue;
+        lv_label_set_text(s_library_play_labels[i],
+                          playing && (int)i == s_playing_note ? "STOP" : "PLAY");
+    }
+}
+
+void library_play_cb(lv_event_t* event) {
+    int index = (int)(intptr_t)lv_event_get_user_data(event);
+    if (index < 0 || (size_t)index >= s_library_count) return;
+    if (audio_wav_playing()) {
+        audio_stop_wav();
+        s_playing_note = -1;
+    } else {
+        char path[160];
+        snprintf(path, sizeof(path), "%s/%s", NOTES_DIR, s_library_files[index]);
+        if (audio_play_wav(path)) s_playing_note = index;
+    }
+    update_library_play_labels();
+}
+
+void format_note_label(const char* filename, char* out, size_t out_size) {
+    unsigned y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0;
+    const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    char path[160];
+    snprintf(path, sizeof(path), "%s/%s", NOTES_DIR, filename);
+    struct stat info = {};
+    long duration = stat(path, &info) == 0 && info.st_size > 44
+        ? (long)(info.st_size - 44) / (SAMPLE_RATE * 2) : 0;
+    if (sscanf(filename, "note_%4u%2u%2u_%2u%2u%2u",
+               &y, &mo, &d, &h, &mi, &sec) == 6 && mo >= 1 && mo <= 12) {
+        snprintf(out, out_size, "%u %s  %02u:%02u    %ld:%02ld",
+                 d, months[mo - 1], h, mi, duration / 60, duration % 60);
+    } else {
+        snprintf(out, out_size, "%s    %ld:%02ld", filename,
+                 duration / 60, duration % 60);
+    }
+}
+
+void rebuild_library(void) {
+    if (!s_library) return;
+    lv_obj_clean(s_library);
+    memset(s_library_play_labels, 0, sizeof(s_library_play_labels));
+    s_library_count = 0;
+
+    DIR* dir = opendir(NOTES_DIR);
+    if (dir) {
+        for (dirent* ent = readdir(dir);
+            ent && s_library_count < MAX_LIBRARY_NOTES; ent = readdir(dir)) {
+            if (!is_wav_name(ent->d_name)) continue;
+            size_t name_len = strnlen(ent->d_name,
+                                      sizeof(s_library_files[s_library_count]));
+            if (name_len >= sizeof(s_library_files[s_library_count])) continue;
+            memcpy(s_library_files[s_library_count], ent->d_name, name_len);
+            s_library_files[s_library_count][name_len] = '\0';
+            ++s_library_count;
+        }
+        closedir(dir);
+    }
+    for (size_t i = 0; i + 1 < s_library_count; ++i) {
+        for (size_t j = i + 1; j < s_library_count; ++j) {
+            if (strcmp(s_library_files[j], s_library_files[i]) > 0) {
+                char swap[64];
+                memcpy(swap, s_library_files[i], sizeof(swap));
+                memcpy(s_library_files[i], s_library_files[j], sizeof(swap));
+                memcpy(s_library_files[j], swap, sizeof(swap));
+            }
+        }
+    }
+
+    if (s_library_count == 0) {
+        lv_obj_t* empty = make_label(s_library, "No saved notes yet.",
+                                     &lv_font_montserrat_18, 0x71677F);
+        lv_obj_set_style_pad_top(empty, 22, 0);
+        return;
+    }
+
+    for (size_t i = 0; i < s_library_count; ++i) {
+        lv_obj_t* row = lv_obj_create(s_library);
+        lv_obj_set_size(row, LV_PCT(100), 74);
+        lv_obj_set_style_bg_color(row, lv_color_hex(0x101014), 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(0x2A282E), 0);
+        lv_obj_set_style_pad_all(row, 12, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        char label_text[96];
+        format_note_label(s_library_files[i], label_text, sizeof(label_text));
+        lv_obj_t* label = make_label(row, label_text, &lv_font_montserrat_18, 0xFFF7E8);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 4, 0);
+
+        lv_obj_t* play = lv_button_create(row);
+        lv_obj_set_size(play, 92, 46);
+        lv_obj_align(play, LV_ALIGN_RIGHT_MID, -2, 0);
+        lv_obj_set_style_radius(play, 9, 0);
+        lv_obj_set_style_bg_color(play, lv_color_hex(0x2C2515), 0);
+        lv_obj_set_style_border_width(play, 1, 0);
+        lv_obj_set_style_border_color(play, lv_color_hex(0xF4C95D), 0);
+        lv_obj_set_style_shadow_width(play, 0, 0);
+        lv_obj_add_event_cb(play, library_play_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        s_library_play_labels[i] = make_label(play, "PLAY", &lv_font_montserrat_18, 0xF4C95D);
+        lv_obj_center(s_library_play_labels[i]);
+    }
+}
+
 void record_button_cb(lv_event_t*) {
     if (s_recording) stop_recording();
     else begin_recording();
@@ -469,13 +600,16 @@ void record_button_cb(lv_event_t*) {
 
 void back_cb(lv_event_t* event) {
     stop_recording();
+    audio_stop_wav();
     if (s_home_cb) s_home_cb(event);
 }
 
 void screen_deleted(lv_event_t*) {
     stop_recording();
+    audio_stop_wav();
+    s_playing_note = -1;
     s_screen = s_record_button = s_record_button_label = nullptr;
-    s_duration_label = s_status_label = s_count_label = nullptr;
+    s_duration_label = s_status_label = s_count_label = s_library = nullptr;
 }
 
 void refresh_ui(void) {
@@ -495,17 +629,29 @@ void refresh_ui(void) {
         lv_label_set_text(s_status_label, "Recording - tap when finished");
         lv_label_set_text(s_record_button_label, "STOP");
         lv_obj_set_style_bg_color(s_record_button, lv_color_hex(0xD83A52), 0);
+        lv_obj_add_flag(s_record_button, LV_OBJ_FLAG_CLICKABLE);
+    } else if (audio_wav_playing()) {
+        lv_label_set_text(s_status_label, "Playing a saved note");
+        lv_label_set_text(s_record_button_label, "PLAYING");
+        lv_obj_set_style_bg_color(s_record_button, lv_color_hex(0x4A4068), 0);
+        lv_obj_clear_flag(s_record_button, LV_OBJ_FLAG_CLICKABLE);
     } else {
         const char* status = "Ready for a new note";
         if (s_message[0] && lv_tick_get() < s_message_until) status = s_message;
         lv_label_set_text(s_status_label, status);
         lv_label_set_text(s_record_button_label, "RECORD");
         lv_obj_set_style_bg_color(s_record_button, lv_color_hex(0xE34A5F), 0);
+        lv_obj_add_flag(s_record_button, LV_OBJ_FLAG_CLICKABLE);
     }
     char counts[80];
     snprintf(counts, sizeof(counts), "%u saved  |  %u waiting for phone",
              (unsigned)s_total, (unsigned)s_pending);
     lv_label_set_text(s_count_label, counts);
+
+    if (s_playing_note >= 0 && !audio_wav_playing()) {
+        s_playing_note = -1;
+        update_library_play_labels();
+    }
 }
 
 } // namespace
@@ -603,7 +749,7 @@ void voice_notes_set_storage_available(bool sd_available) {
 }
 
 bool voice_notes_storage_busy(void) {
-    return s_recording || s_sync_busy || s_sync_requested;
+    return s_recording || s_sync_busy || s_sync_requested || audio_wav_playing();
 }
 
 void voice_notes_show(lv_event_cb_t home_cb) {
@@ -631,18 +777,18 @@ void voice_notes_show(lv_event_cb_t home_cb) {
 
     lv_obj_t* title = make_label(screen, "VOICE NOTES", &lv_font_montserrat_28, 0xF4C95D);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30);
-    lv_obj_t* subtitle = make_label(screen, "Say it now. Send it to your phone later.",
+    lv_obj_t* subtitle = make_label(screen, "Record here. Replay anytime.",
                                     &lv_font_montserrat_18, 0xA99CB8);
-    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 92);
+    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 78);
 
     s_duration_label = make_label(screen, "0:00", &lv_font_montserrat_48, 0xFFF7E8);
-    lv_obj_align(s_duration_label, LV_ALIGN_TOP_MID, 0, 190);
-    s_status_label = make_label(screen, "", &lv_font_montserrat_20, 0xB8A9CB);
-    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 270);
+    lv_obj_align(s_duration_label, LV_ALIGN_TOP_MID, 0, 118);
+    s_status_label = make_label(screen, "", &lv_font_montserrat_18, 0xB8A9CB);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 170);
 
     s_record_button = lv_button_create(screen);
-    lv_obj_set_size(s_record_button, 310, 310);
-    lv_obj_align(s_record_button, LV_ALIGN_CENTER, 0, 35);
+    lv_obj_set_size(s_record_button, 210, 210);
+    lv_obj_align(s_record_button, LV_ALIGN_TOP_MID, 0, 210);
     lv_obj_set_style_radius(s_record_button, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(s_record_button, 10, 0);
     lv_obj_set_style_border_color(s_record_button, lv_color_hex(0xFF8797), 0);
@@ -654,16 +800,31 @@ void voice_notes_show(lv_event_cb_t home_cb) {
     lv_obj_set_style_shadow_width(s_record_button, 0, 0);
     lv_obj_add_event_cb(s_record_button, record_button_cb, LV_EVENT_CLICKED, nullptr);
     s_record_button_label = make_label(s_record_button, "RECORD",
-                                       &lv_font_montserrat_32, 0xFFFFFF);
+                                       &lv_font_montserrat_28, 0xFFFFFF);
     lv_obj_center(s_record_button_label);
 
     s_count_label = make_label(screen, "", &lv_font_montserrat_20, 0xA99CB8);
-    lv_obj_align(s_count_label, LV_ALIGN_BOTTOM_MID, 0, -96);
-    lv_obj_t* hint = make_label(screen, "Notes stay on the SD card until the Rocky app collects them.",
-                                &lv_font_montserrat_18, 0x71677F);
-    lv_obj_set_width(hint, 510);
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -42);
+    lv_obj_align(s_count_label, LV_ALIGN_TOP_MID, 0, 438);
+
+    lv_obj_t* library_title = make_label(screen, "ON THIS DEVICE",
+                                         &lv_font_montserrat_18, 0xF4C95D);
+    lv_obj_align(library_title, LV_ALIGN_TOP_LEFT, 28, 492);
+    s_library = lv_obj_create(screen);
+    lv_obj_set_size(s_library, 544, 466);
+    lv_obj_align(s_library, LV_ALIGN_TOP_MID, 0, 530);
+    lv_obj_set_flex_flow(s_library, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_library, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_bg_color(s_library, lv_color_hex(0x101014), 0);
+    lv_obj_set_style_bg_opa(s_library, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_library, 1, 0);
+    lv_obj_set_style_border_color(s_library, lv_color_hex(0x2A282E), 0);
+    lv_obj_set_style_radius(s_library, 14, 0);
+    lv_obj_set_style_pad_all(s_library, 8, 0);
+    lv_obj_set_style_pad_row(s_library, 2, 0);
+    lv_obj_set_scroll_dir(s_library, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_library, LV_SCROLLBAR_MODE_ACTIVE);
+    rebuild_library();
 
     refresh_ui();
     lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
@@ -675,6 +836,7 @@ void voice_notes_poll(void) {
         s_save_pending = false;
         if (s_save_ok) {
             refresh_counts();
+            rebuild_library();
             snprintf(s_message, sizeof(s_message), "Saved %lu-second voice note",
                      (unsigned long)s_saved_seconds);
         } else {
@@ -682,7 +844,7 @@ void voice_notes_poll(void) {
         }
         s_message_until = lv_tick_get() + 5000;
     }
-    if (s_sync_requested && !s_sync_busy && !s_recording) {
+    if (s_sync_requested && !s_sync_busy && !s_recording && !audio_wav_playing()) {
         if (xTaskCreate(sync_task, "voice_sync", 10240, nullptr, 4, nullptr) != pdPASS) {
             s_sync_requested = false;
             ESP_LOGE(TAG, "sync task creation failed");

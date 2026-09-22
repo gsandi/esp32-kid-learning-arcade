@@ -239,7 +239,7 @@ static const esp_gatts_attr_db_t GATT_DB[IDX_COUNT] = {
 static esp_ble_adv_data_t ADV_DATA = {
     .set_scan_rsp = false,
     // Keep the complete 128-bit service UUID in the primary packet so Android's
-    // filtered scan finds Rocky Arcade. The human-readable name lives in scan response.
+    // filtered scan finds Rocky Desk. The human-readable name lives in scan response.
     .include_name = false,
     .include_txpower = false,
     .min_interval = 0x20,
@@ -299,7 +299,7 @@ static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) 
         case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
             if (param->adv_start_cmpl.status == ESP_BT_STATUS_SUCCESS) {
                 if (!s_connected) s_public_state = ROCKY_BLE_READY;
-                ESP_LOGI(TAG, "advertising as Rocky Arcade");
+                ESP_LOGI(TAG, "advertising as Rocky Desk");
             } else {
                 s_public_state = ROCKY_BLE_DISABLED;
                 ESP_LOGE(TAG, "advertising failed: %d", param->adv_start_cmpl.status);
@@ -319,7 +319,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                 return;
             }
             s_gatts_if = gatts_if;
-            esp_ble_gap_set_device_name("Rocky Arcade");
+            esp_ble_gap_set_device_name("Rocky Desk");
             s_adv_pending = 0x03;
             esp_ble_gap_config_adv_data(&ADV_DATA);
             esp_ble_gap_config_adv_data(&SCAN_DATA);
@@ -493,7 +493,7 @@ void rocky_ble_poll(void) {
 }
 
 RockyBleState rocky_ble_state(void) { return s_public_state; }
-const char* rocky_ble_device_name(void) { return "Rocky Arcade"; }
+const char* rocky_ble_device_name(void) { return "Rocky Desk"; }
 
 #else
 
@@ -503,6 +503,6 @@ void rocky_ble_init(void) {
 
 void rocky_ble_poll(void) {}
 RockyBleState rocky_ble_state(void) { return ROCKY_BLE_DISABLED; }
-const char* rocky_ble_device_name(void) { return "Rocky Arcade"; }
+const char* rocky_ble_device_name(void) { return "Rocky Desk"; }
 
 #endif

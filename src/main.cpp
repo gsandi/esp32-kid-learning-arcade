@@ -2866,6 +2866,94 @@ static void sd_monitor_start(void) {
 
 static i2s_chan_handle_t g_i2s_tx = NULL;
 static SemaphoreHandle_t g_audio_mutex = NULL;
+static volatile bool g_wav_playing = false;
+static volatile uint32_t g_wav_generation = 0;
+
+struct WavPlaybackRequest {
+    char path[160];
+    uint32_t generation;
+};
+
+static void wav_playback_task(void* arg) {
+    WavPlaybackRequest* request = (WavPlaybackRequest*)arg;
+    const uint32_t generation = request->generation;
+    FILE* file = fopen(request->path, "rb");
+    if (!file) {
+        ESP_LOGE(TAG, "WAV open failed: %s", request->path);
+        g_wav_playing = false;
+        free(request);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    uint8_t header[44] = {};
+    bool valid = fread(header, 1, sizeof(header), file) == sizeof(header) &&
+                 memcmp(header, "RIFF", 4) == 0 &&
+                 memcmp(header + 8, "WAVE", 4) == 0 &&
+                 memcmp(header + 36, "data", 4) == 0;
+    if (!valid) {
+        ESP_LOGE(TAG, "unsupported WAV header: %s", request->path);
+        fclose(file);
+        g_wav_playing = false;
+        free(request);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (g_audio_mutex) xSemaphoreTake(g_audio_mutex, portMAX_DELAY);
+    gpio_set_level(AUDIO_PA_EN, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    ESP_LOGI(TAG, "WAV playback started: %s", request->path);
+
+    int16_t input[512];
+    int32_t output[512];
+    while (g_wav_generation == generation) {
+        size_t count = fread(input, sizeof(int16_t), 512, file);
+        if (count == 0) break;
+        for (size_t i = 0; i < count; ++i) {
+            int32_t scaled = (int32_t)input[i] * (int32_t)g_volume / 100;
+            output[i] = scaled * 65536;
+        }
+        size_t written = 0;
+        esp_err_t err = i2s_channel_write(g_i2s_tx, output,
+                                           count * sizeof(int32_t), &written,
+                                           pdMS_TO_TICKS(1000));
+        if (err != ESP_OK || written != count * sizeof(int32_t)) {
+            ESP_LOGE(TAG, "WAV playback write failed: %s", esp_err_to_name(err));
+            break;
+        }
+    }
+
+    gpio_set_level(AUDIO_PA_EN, 1);
+    if (g_audio_mutex) xSemaphoreGive(g_audio_mutex);
+    fclose(file);
+    g_wav_playing = false;
+    ESP_LOGI(TAG, "WAV playback stopped: %s", request->path);
+    free(request);
+    vTaskDelete(NULL);
+}
+
+bool audio_play_wav(const char* path) {
+    if (!g_i2s_tx || !path || !path[0] || g_wav_playing) return false;
+    WavPlaybackRequest* request = (WavPlaybackRequest*)calloc(1, sizeof(WavPlaybackRequest));
+    if (!request) return false;
+    snprintf(request->path, sizeof(request->path), "%s", path);
+    g_wav_generation = g_wav_generation + 1;
+    request->generation = g_wav_generation;
+    g_wav_playing = true;
+    if (xTaskCreate(wav_playback_task, "wav_play", 7168, request, 5, NULL) != pdPASS) {
+        g_wav_playing = false;
+        free(request);
+        return false;
+    }
+    return true;
+}
+
+void audio_stop_wav(void) {
+    g_wav_generation = g_wav_generation + 1;
+}
+
+bool audio_wav_playing(void) { return g_wav_playing; }
 
 static void melody_task(void* arg) {
     Note* notes = (Note*)arg;
