@@ -408,6 +408,17 @@ void sync_task(void*) {
     prepare_phone_ledger(host);
     nvs_handle_t ledger = 0;
     if (nvs_open(PHONE_LEDGER, NVS_READWRITE, &ledger) == ESP_OK) {
+        // A request from the phone is an explicit reconciliation, not a
+        // background incremental upload. The receiver stores by filename, so
+        // resending is idempotent; skipping entries from an old delivery ledger
+        // is not, because it produces the truthful-but-useless result "0 sent"
+        // when this installation of the app has none of those files. Rebuild the
+        // phone's copy from what is physically on this SD card every time the
+        // user taps Get notes.
+        nvs_erase_all(ledger);
+        nvs_commit(ledger);
+        ESP_LOGI(TAG, "manual phone pull: delivery ledger cleared; reconciling %u files",
+                 (unsigned)count);
         for (size_t i = 0; i < count; ++i) {
             char key[12];
             ledger_key(s_sync_files[i], key);
