@@ -458,7 +458,10 @@ static lv_obj_t*   g_connectivity_wifi_detail = NULL;
 static lv_obj_t*   g_connectivity_wifi_action = NULL;
 static lv_obj_t*   g_connectivity_ble_dot     = NULL;
 static lv_obj_t*   g_connectivity_ble_detail  = NULL;
+static lv_obj_t*   g_settings_sd_dot          = NULL;
+static lv_obj_t*   g_settings_sd_detail       = NULL;
 static bool        g_scan_done         = false;
+static volatile bool g_sd_mounted      = false;
 
 static char        g_ota_server_ip[64] = "192.168.1.100";
 static lv_image_dsc_t g_bg_img_psram  = {};   // PSRAM-backed copy, filled once at boot
@@ -1036,6 +1039,17 @@ static void refresh_connectivity_ui(void) {
                                     lv_color_hex(ble_color), 0);
     }
     set_connection_dot(g_connectivity_ble_dot, ble_color, ble_glow);
+
+    if (g_settings_sd_detail) {
+        lv_label_set_text(g_settings_sd_detail,
+                          g_sd_mounted ? "Mounted - voice notes ready"
+                                       : "Waiting for card...");
+        lv_obj_set_style_text_color(g_settings_sd_detail,
+            lv_color_hex(g_sd_mounted ? C_CORRECT : C_SUBTEXT), 0);
+    }
+    set_connection_dot(g_settings_sd_dot,
+                       g_sd_mounted ? C_CORRECT : 0x4A4068,
+                       g_sd_mounted);
 }
 
 static void reset_connectivity_refs(void) {
@@ -1045,6 +1059,8 @@ static void reset_connectivity_refs(void) {
     g_connectivity_wifi_action = NULL;
     g_connectivity_ble_dot = NULL;
     g_connectivity_ble_detail = NULL;
+    g_settings_sd_dot = NULL;
+    g_settings_sd_detail = NULL;
     g_settings_wifi_lbl = NULL;
 }
 
@@ -1673,6 +1689,48 @@ static void launch_settings(void) {
     lv_obj_set_style_text_font(ble_badge_lbl, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(ble_badge_lbl, lv_color_hex(C_GOLD), 0);
     lv_obj_center(ble_badge_lbl);
+
+    // ── STORAGE ──────────────────────────────────────────────────────────
+    make_section("STORAGE");
+    lv_obj_t* sd_card = make_card(102);
+    lv_obj_set_style_pad_left(sd_card, 24, 0);
+    lv_obj_set_style_pad_right(sd_card, 20, 0);
+
+    g_settings_sd_dot = lv_obj_create(sd_card);
+    lv_obj_set_size(g_settings_sd_dot, 16, 16);
+    lv_obj_set_style_radius(g_settings_sd_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(g_settings_sd_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(g_settings_sd_dot, 0, 0);
+    lv_obj_remove_flag(g_settings_sd_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(g_settings_sd_dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(g_settings_sd_dot, LV_ALIGN_LEFT_MID, 14, 0);
+
+    lv_obj_t* sd_title = lv_label_create(sd_card);
+    lv_label_set_text(sd_title, "MicroSD card");
+    lv_obj_set_style_text_font(sd_title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(sd_title, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_align(sd_title, LV_ALIGN_LEFT_MID, 42, -16);
+
+    g_settings_sd_detail = lv_label_create(sd_card);
+    lv_obj_set_style_text_font(g_settings_sd_detail, &lv_font_montserrat_18, 0);
+    lv_obj_align(g_settings_sd_detail, LV_ALIGN_LEFT_MID, 42, 17);
+
+    lv_obj_t* sd_badge = lv_obj_create(sd_card);
+    lv_obj_set_size(sd_badge, 74, 40);
+    lv_obj_align(sd_badge, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(sd_badge, lv_color_hex(0x2B2050), 0);
+    lv_obj_set_style_bg_opa(sd_badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(sd_badge, 20, 0);
+    lv_obj_set_style_border_width(sd_badge, 1, 0);
+    lv_obj_set_style_border_color(sd_badge, lv_color_hex(C_GOLD), 0);
+    lv_obj_set_style_pad_all(sd_badge, 0, 0);
+    lv_obj_remove_flag(sd_badge, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(sd_badge, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* sd_badge_lbl = lv_label_create(sd_badge);
+    lv_label_set_text(sd_badge_lbl, "SD");
+    lv_obj_set_style_text_font(sd_badge_lbl, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(sd_badge_lbl, lv_color_hex(C_GOLD), 0);
+    lv_obj_center(sd_badge_lbl);
 
     // ── DISPLAY ──────────────────────────────────────────────────────────
     make_section("DISPLAY");
@@ -2632,8 +2690,8 @@ static void show_admin(void) {
 // Slot 0 (CLK=43, CMD=44, D0=39), 1-bit mode. ESP-Hosted owns the SDMMC host
 // for WiFi (slot 1) — use dummy init/deinit to avoid double-init in IDF 6.x.
 
-static bool g_sd_mounted = false;
 static esp_ldo_channel_handle_t g_peripheral_pwr_chan = NULL;
+static sdmmc_card_t* g_sd_card = NULL;
 
 static esp_err_t sdmmc_host_no_init(void)   { return ESP_OK; }
 static esp_err_t sdmmc_host_no_deinit(void) { return ESP_OK; }
@@ -2662,6 +2720,8 @@ static bool sd_init(void) {
         .format_if_mount_failed = false,
         .max_files              = 8,
         .allocation_unit_size   = 16 * 1024,
+        .disk_status_check_enable = true,
+        .use_one_fat            = false,
     };
     sdmmc_host_t host  = SDMMC_HOST_DEFAULT();
     host.slot          = SDMMC_HOST_SLOT_0;
@@ -2676,14 +2736,20 @@ static bool sd_init(void) {
     slot.d0    = GPIO_NUM_39;
     slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-    static sdmmc_card_t* card = NULL;
-    esp_err_t err = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &mcfg, &card);
+    esp_err_t err = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot, &mcfg,
+                                            &g_sd_card);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "SD mount failed (%s) — using built-in questions only", esp_err_to_name(err));
+        static unsigned failed_attempts = 0;
+        ++failed_attempts;
+        if (failed_attempts == 1 || failed_attempts % 12 == 0) {
+            ESP_LOGW(TAG, "SD mount failed (%s) - retrying in background",
+                     esp_err_to_name(err));
+        }
+        g_sd_card = NULL;
         return false;
     }
-    ESP_LOGI(TAG, "SD mounted: %s %.1f MB", card->cid.name,
-             (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / 1048576.f);
+    ESP_LOGI(TAG, "SD mounted: %s %.1f MB", g_sd_card->cid.name,
+             (float)((uint64_t)g_sd_card->csd.capacity * g_sd_card->csd.sector_size) / 1048576.f);
     g_sd_mounted = true;
     return true;
 }
@@ -2722,6 +2788,11 @@ static void sd_parse_line(char* line) {
 
 static void sd_load_questions(void) {
     if (!g_sd_mounted) return;
+    // A removed/reinserted card replaces the prior card's extras rather than
+    // appending a duplicate copy each time the monitor remounts it.
+    g_add_extra_n = 0;
+    g_skip_extra_n = 0;
+    g_mult_extra_n = 0;
     FILE* f = fopen("/sdcard/questions.csv", "r");
     if (!f) {
         ESP_LOGI(TAG, "No /sdcard/questions.csv — using defaults only");
@@ -2736,6 +2807,54 @@ static void sd_load_questions(void) {
     fclose(f);
     ESP_LOGI(TAG, "SD loaded: %d ADD, %d SKIP, %d MULT extra questions",
              g_add_extra_n, g_skip_extra_n, g_mult_extra_n);
+}
+
+static void sd_monitor_task(void*) {
+    // The socket has no card-detect GPIO. Probe it out of the UI thread so a
+    // missing or slow card can never stall LVGL. Two failed health checks are
+    // required before unmounting to tolerate an isolated bus error.
+    unsigned status_failures = 0;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        if (!g_sd_mounted) {
+            if (sd_init()) {
+                status_failures = 0;
+                sd_load_questions();
+                voice_notes_set_storage_available(true);
+            }
+            continue;
+        }
+        if (voice_notes_storage_busy()) continue;
+
+        esp_err_t status = sdmmc_get_status(g_sd_card);
+        if (status == ESP_OK) {
+            status_failures = 0;
+            continue;
+        }
+        if (++status_failures < 2) {
+            ESP_LOGW(TAG, "SD health check failed once (%s); confirming",
+                     esp_err_to_name(status));
+            continue;
+        }
+
+        ESP_LOGW(TAG, "SD card removed or stopped responding (%s)",
+                 esp_err_to_name(status));
+        voice_notes_set_storage_available(false);
+        esp_err_t unmount_err = esp_vfs_fat_sdcard_unmount("/sdcard", g_sd_card);
+        if (unmount_err != ESP_OK) {
+            ESP_LOGW(TAG, "SD unmount after removal: %s",
+                     esp_err_to_name(unmount_err));
+        }
+        g_sd_card = NULL;
+        g_sd_mounted = false;
+        status_failures = 0;
+    }
+}
+
+static void sd_monitor_start(void) {
+    BaseType_t created = xTaskCreate(sd_monitor_task, "sd_monitor", 4096,
+                                     NULL, 3, NULL);
+    if (created != pdPASS) ESP_LOGE(TAG, "could not start SD monitor task");
 }
 
 // ── Audio ─────────────────────────────────────────────────────────────────────
@@ -3053,6 +3172,7 @@ extern "C" void app_main(void) {
     sd_init();
     sd_load_questions();
     voice_notes_init(g_sd_mounted);
+    sd_monitor_start();
 
     show_clock();
 }

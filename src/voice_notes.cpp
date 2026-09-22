@@ -30,7 +30,8 @@ constexpr char BOUNDARY[] = "----rockyArcadeVoiceNote";
 constexpr size_t MAX_SYNC_FILES = 64;
 
 i2s_chan_handle_t s_rx = nullptr;
-bool s_available = false;
+bool s_audio_ready = false;
+volatile bool s_available = false;
 volatile bool s_recording = false;
 volatile bool s_stop_requested = false;
 volatile bool s_save_pending = false;
@@ -419,6 +420,10 @@ void refresh_ui(void) {
 } // namespace
 
 void voice_notes_init(bool sd_available) {
+    if (s_audio_ready) {
+        voice_notes_set_storage_available(sd_available);
+        return;
+    }
     i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     channel.dma_desc_num = 6;
     channel.dma_frame_num = 256;
@@ -469,22 +474,6 @@ void voice_notes_init(bool sd_available) {
     if (probe_peak == 0) ESP_LOGW(TAG, "PDM self-test returned digital silence");
     else ESP_LOGI(TAG, "PDM self-test: %u samples, raw peak=%ld",
                   (unsigned)(probe_bytes / sizeof(int16_t)), (long)probe_peak);
-    if (!sd_available) {
-        ESP_LOGW(TAG, "microphone is ready, but SD storage is unavailable; recorder disabled");
-        i2s_channel_disable(s_rx);
-        i2s_del_channel(s_rx);
-        s_rx = nullptr;
-        return;
-    }
-    if (mkdir(NOTES_DIR, 0775) != 0 && errno != EEXIST) {
-        ESP_LOGE(TAG, "could not create %s: errno=%d", NOTES_DIR, errno);
-        i2s_channel_disable(s_rx);
-        i2s_del_channel(s_rx);
-        s_rx = nullptr;
-        return;
-    }
-    s_available = true;
-    refresh_counts();
     if (xTaskCreate(record_task, "voice_rec", 8192, nullptr, 5, &s_record_task) != pdPASS) {
         ESP_LOGE(TAG, "record task creation failed");
         i2s_channel_disable(s_rx);
@@ -493,8 +482,31 @@ void voice_notes_init(bool sd_available) {
         s_available = false;
         return;
     }
+    s_audio_ready = true;
+    voice_notes_set_storage_available(sd_available);
     ESP_LOGI(TAG, "PDM recorder ready on GPIO24/26; %u notes (%u pending)",
              s_total, s_pending);
+}
+
+void voice_notes_set_storage_available(bool sd_available) {
+    if (!s_audio_ready) return;
+    if (!sd_available) {
+        s_available = false;
+        ESP_LOGW(TAG, "SD storage unavailable; voice-note recorder paused");
+        return;
+    }
+    if (mkdir(NOTES_DIR, 0775) != 0 && errno != EEXIST) {
+        ESP_LOGE(TAG, "could not create %s: errno=%d", NOTES_DIR, errno);
+        s_available = false;
+        return;
+    }
+    s_available = true;
+    refresh_counts();
+    ESP_LOGI(TAG, "SD storage ready; voice-note recorder enabled");
+}
+
+bool voice_notes_storage_busy(void) {
+    return s_recording || s_sync_busy || s_sync_requested;
 }
 
 void voice_notes_show(lv_event_cb_t home_cb) {
