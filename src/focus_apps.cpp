@@ -15,6 +15,7 @@
 #include "nvs.h"
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static const char* TAG = "focus_apps";
 static constexpr uint32_t BG       = 0x120925;
@@ -48,6 +49,18 @@ static uint16_t  s_break_minutes = 5;
 static uint16_t  s_long_break_minutes = 15;
 static uint8_t   s_work_segment = 0;
 static uint16_t  s_session_count = 0;
+static constexpr uint8_t SESSION_LOG_MAX = 20;
+struct SessionEntry {
+    uint8_t kind;       // 0 completed, 1 abandoned
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t focused_min;
+    uint8_t planned_min;
+};
+static SessionEntry s_session_log[SESSION_LOG_MAX] = {};
+static uint8_t s_session_log_count = 0;
+static uint8_t s_focus_start_hour = 0;
+static uint8_t s_focus_start_minute = 0;
 
 static bool      s_sw_running = false;
 static int64_t   s_sw_started_us = 0;
@@ -66,6 +79,7 @@ static lv_obj_t* s_pomo_hint = nullptr;
 static lv_obj_t* s_pomo_presets = nullptr;
 static lv_obj_t* s_pomo_controls = nullptr;
 static lv_obj_t* s_pomo_primary_lbl = nullptr;
+static lv_obj_t* s_pomo_add_btn = nullptr;
 static constexpr uint8_t POMO_TICK_COUNT = 60;
 static lv_obj_t* s_pomo_tick_frame = nullptr;
 static int8_t s_pomo_last_tick = -1;
@@ -125,6 +139,95 @@ void focus_ble_get_state(uint8_t* state, uint8_t* segment, uint16_t* sessions,
     if (sessions) *sessions = s_session_count;
     if (remaining_sec) *remaining_sec = s_pomo_remaining;
     if (total_sec) *total_sec = s_pomo_total;
+}
+
+size_t focus_ble_get_log(uint8_t* out, size_t capacity) {
+    if (!out || capacity == 0) return 0;
+    uint8_t count = s_session_log_count;
+    size_t max_entries = (capacity - 1) / 5;
+    if (count > max_entries) count = (uint8_t)max_entries;
+    out[0] = count;
+    size_t offset = 1;
+    for (uint8_t i = 0; i < count; ++i) {
+        const SessionEntry& entry = s_session_log[i];
+        out[offset++] = entry.kind;
+        out[offset++] = entry.hour;
+        out[offset++] = entry.minute;
+        out[offset++] = entry.focused_min;
+        out[offset++] = entry.planned_min;
+    }
+    return offset;
+}
+
+static uint32_t current_day_key(void) {
+    time_t now = time(nullptr);
+    if (now < 1577836800) return 0; // Clock not valid yet.
+    struct tm local = {};
+    localtime_r(&now, &local);
+    return (uint32_t)(local.tm_year + 1900) * 1000u + (uint32_t)local.tm_yday;
+}
+
+static void capture_focus_start_time(void) {
+    time_t now = time(nullptr);
+    struct tm local = {};
+    if (now >= 1577836800 && localtime_r(&now, &local)) {
+        s_focus_start_hour = (uint8_t)local.tm_hour;
+        s_focus_start_minute = (uint8_t)local.tm_min;
+    } else {
+        s_focus_start_hour = 0;
+        s_focus_start_minute = 0;
+    }
+}
+
+static void save_session_log(void) {
+    nvs_handle_t h;
+    if (nvs_open("pomo_log2", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u32(h, "day", current_day_key());
+    nvs_set_u8(h, "count", s_session_log_count);
+    nvs_set_blob(h, "entries", s_session_log,
+                 (size_t)s_session_log_count * sizeof(SessionEntry));
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+static void load_session_log(void) {
+    nvs_handle_t h;
+    if (nvs_open("pomo_log2", NVS_READWRITE, &h) != ESP_OK) return;
+    uint32_t stored_day = 0;
+    uint8_t count = 0;
+    nvs_get_u32(h, "day", &stored_day);
+    nvs_get_u8(h, "count", &count);
+    uint32_t today = current_day_key();
+    bool same_day = today == 0 || stored_day == 0 || stored_day == today;
+    if (same_day && count <= SESSION_LOG_MAX) {
+        size_t bytes = (size_t)count * sizeof(SessionEntry);
+        if (bytes == 0 || nvs_get_blob(h, "entries", s_session_log, &bytes) == ESP_OK) {
+            s_session_log_count = count;
+        }
+    } else {
+        nvs_erase_key(h, "entries");
+        nvs_set_u8(h, "count", 0);
+        nvs_set_u32(h, "day", today);
+        nvs_commit(h);
+    }
+    nvs_close(h);
+    s_session_count = 0;
+    for (uint8_t i = 0; i < s_session_log_count; ++i)
+        if (s_session_log[i].kind == 0) ++s_session_count;
+}
+
+static void add_session_log(bool abandoned, uint32_t focused_sec, uint32_t planned_sec) {
+    if (s_session_log_count >= SESSION_LOG_MAX) return;
+    SessionEntry& entry = s_session_log[s_session_log_count++];
+    entry.kind = abandoned ? 1 : 0;
+    entry.hour = s_focus_start_hour;
+    entry.minute = s_focus_start_minute;
+    entry.focused_min = (uint8_t)((focused_sec / 60) > 255 ? 255 : (focused_sec / 60));
+    entry.planned_min = (uint8_t)((planned_sec / 60) > 255 ? 255 : (planned_sec / 60));
+    save_session_log();
+    ESP_LOGI(TAG, "session logged: %s %02u:%02u %u/%u min",
+             abandoned ? "abandoned" : "completed", entry.hour, entry.minute,
+             entry.focused_min, entry.planned_min);
 }
 
 static void style_screen(lv_obj_t* scr) {
@@ -297,6 +400,11 @@ static void pomo_refresh(void) {
     lv_label_set_text(s_pomo_status, status);
     lv_label_set_text(s_pomo_hint, hint);
     lv_label_set_text(s_pomo_primary_lbl, primary);
+    if (s_pomo_add_btn) {
+        bool focus_active = s_pomo == POMO_FOCUS_RUNNING || s_pomo == POMO_FOCUS_PAUSED;
+        if (focus_active) lv_obj_remove_flag(s_pomo_add_btn, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_pomo_add_btn, LV_OBJ_FLAG_HIDDEN);
+    }
 
     bool ready = s_pomo == POMO_READY;
     if (ready) {
@@ -311,6 +419,7 @@ static void pomo_refresh(void) {
 
 static void pomo_complete(void) {
     if (s_pomo == POMO_FOCUS_RUNNING) {
+        add_session_log(false, s_pomo_total, s_pomo_total);
         s_pomo = POMO_FOCUS_DONE;
         ++s_session_count;
     }
@@ -383,13 +492,14 @@ void focus_apps_init(void) {
             s_pomo_total = s_pomo_remaining = (uint32_t)s_focus_minutes * 60;
         }
     }
+    load_session_log();
     art_image("bg_stopwatch", &s_bg_stopwatch);
     if (!s_service) s_service = lv_timer_create(service_cb, 250, nullptr);
 }
 
 static void pomo_screen_deleted(lv_event_t*) {
     s_pomo_scr = s_pomo_digits = s_pomo_status = s_pomo_hint = nullptr;
-    s_pomo_presets = s_pomo_controls = s_pomo_primary_lbl = nullptr;
+    s_pomo_presets = s_pomo_controls = s_pomo_primary_lbl = s_pomo_add_btn = nullptr;
     s_pomo_tick_frame = nullptr;
     s_pomo_last_tick = s_pomo_last_tick_state = -1;
 }
@@ -402,6 +512,7 @@ static void on_preset(lv_event_t* e) {
     s_pomo_deadline_us = esp_timer_get_time() + (int64_t)s_pomo_remaining * 1000000;
     s_pomo = POMO_FOCUS_RUNNING;
     ++s_work_segment;
+    capture_focus_start_time();
     rocky_set_expression(ROCKY_LOOK);
     pomo_refresh();
 }
@@ -425,8 +536,28 @@ static void on_pomo_primary(lv_event_t*) {
 }
 
 static void on_pomo_cancel(lv_event_t*) {
+    if (s_pomo == POMO_FOCUS_RUNNING) pomo_update_model();
+    if (s_pomo == POMO_FOCUS_RUNNING || s_pomo == POMO_FOCUS_PAUSED) {
+        uint32_t focused = s_pomo_total > s_pomo_remaining
+                         ? s_pomo_total - s_pomo_remaining : 0;
+        add_session_log(true, focused, s_pomo_total);
+    }
     s_pomo = POMO_READY;
     s_pomo_total = s_pomo_remaining = (uint32_t)s_focus_minutes * 60;
+    pomo_refresh();
+}
+
+static void on_pomo_add_five(lv_event_t*) {
+    if (s_pomo != POMO_FOCUS_RUNNING && s_pomo != POMO_FOCUS_PAUSED) return;
+    if (s_pomo == POMO_FOCUS_RUNNING) pomo_update_model();
+    constexpr uint32_t FIVE_MIN = 5 * 60;
+    constexpr uint32_t MAX_FOCUS = 180 * 60;
+    if (s_pomo_total > MAX_FOCUS - FIVE_MIN) return;
+    s_pomo_total += FIVE_MIN;
+    s_pomo_remaining += FIVE_MIN;
+    if (s_pomo == POMO_FOCUS_RUNNING) s_pomo_deadline_us += (int64_t)FIVE_MIN * 1000000;
+    ESP_LOGI(TAG, "focus extended by five minutes; total=%lu sec",
+             (unsigned long)s_pomo_total);
     pomo_refresh();
 }
 
@@ -481,10 +612,12 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_set_style_border_width(s_pomo_controls, 0, 0);
     lv_obj_set_style_pad_all(s_pomo_controls, 0, 0);
     lv_obj_remove_flag(s_pomo_controls, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t* primary = button(s_pomo_controls, "Pause", 330, 92, ORANGE, on_pomo_primary);
+    lv_obj_t* primary = button(s_pomo_controls, "Pause", 236, 92, ORANGE, on_pomo_primary);
     lv_obj_align(primary, LV_ALIGN_LEFT_MID, 8, 0);
     s_pomo_primary_lbl = lv_obj_get_child(primary, 0);
-    lv_obj_t* cancel = button(s_pomo_controls, "End", 180, 92, PANEL, on_pomo_cancel);
+    s_pomo_add_btn = button(s_pomo_controls, "+5 min", 136, 92, PURPLE, on_pomo_add_five);
+    lv_obj_align(s_pomo_add_btn, LV_ALIGN_CENTER, 45, 0);
+    lv_obj_t* cancel = button(s_pomo_controls, "End", 136, 92, PANEL, on_pomo_cancel);
     lv_obj_align(cancel, LV_ALIGN_RIGHT_MID, -8, 0);
 
     pomo_refresh();

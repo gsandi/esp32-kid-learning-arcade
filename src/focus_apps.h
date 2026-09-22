@@ -2,6 +2,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include <stddef.h>
 
 // Create the shared quarter-second service timer. Call once after LVGL starts.
 void focus_apps_init(void);
@@ -21,3 +22,7 @@ void focus_ble_get_config(uint16_t out_minutes[4]);
 bool focus_ble_set_config(const uint16_t minutes[4]);
 void focus_ble_get_state(uint8_t* state, uint8_t* segment, uint16_t* sessions,
                          uint32_t* remaining_sec, uint32_t* total_sec);
+
+// Existing Rocky app LOG wire format: count byte followed by up to twenty
+// 5-byte entries (kind, start hour, start minute, focused min, planned min).
+size_t focus_ble_get_log(uint8_t* out, size_t capacity);

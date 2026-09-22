@@ -37,6 +37,9 @@ enum AttrIndex {
     IDX_STATE_DECL,
     IDX_STATE_VAL,
     IDX_STATE_CCCD,
+    IDX_LOG_DECL,
+    IDX_LOG_VAL,
+    IDX_LOG_CCCD,
     IDX_INFO_DECL,
     IDX_INFO_VAL,
     IDX_COUNT,
@@ -51,6 +54,8 @@ static const uint8_t PROP_CFG = ESP_GATT_CHAR_PROP_BIT_READ |
 static const uint8_t PROP_STATE = ESP_GATT_CHAR_PROP_BIT_READ |
                                   ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static const uint8_t PROP_INFO = ESP_GATT_CHAR_PROP_BIT_READ;
+static const uint8_t PROP_LOG = ESP_GATT_CHAR_PROP_BIT_READ |
+                                ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static uint8_t CCCD_OFF[2] = {0, 0};
 
 // ESP-IDF stores 128-bit UUIDs least-significant byte first.
@@ -66,19 +71,29 @@ static uint8_t UUID_STATE[16] = {
 static uint8_t UUID_INFO[16] = {
     0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x04,0x00,0x1d,0x6b
 };
+static uint8_t UUID_LOG[16] = {
+    0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x07,0x00,0x1d,0x6b
+};
 
 static uint8_t s_cfg[CFG_LEN] = {};
 static uint8_t s_state[STATE_LEN] = {};
 static uint8_t s_last_state[STATE_LEN] = {0xFF};
-static uint8_t s_info[] = "0.2.0";
+static constexpr size_t LOG_MAX = 1 + 20 * 5;
+static uint8_t s_log[LOG_MAX] = {};
+static uint8_t s_last_log[LOG_MAX] = {0xFF};
+static size_t s_log_len = 1;
+static size_t s_last_log_len = 0;
+static uint8_t s_info[] = "0.3.0";
 static uint16_t s_handles[IDX_COUNT] = {};
 static esp_gatt_if_t s_gatts_if = ESP_GATT_IF_NONE;
 static uint16_t s_conn_id = 0;
 static bool s_connected = false;
 static bool s_cfg_notify = false;
 static bool s_state_notify = false;
+static bool s_log_notify = false;
 static uint8_t s_adv_pending = 0;
 static bool s_started = false;
+static volatile RockyBleState s_public_state = ROCKY_BLE_DISABLED;
 
 static portMUX_TYPE s_cfg_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_cfg_pending = false;
@@ -135,6 +150,16 @@ static const esp_gatts_attr_db_t GATT_DB[IDX_COUNT] = {
         {ESP_UUID_LEN_128, UUID_STATE, ESP_GATT_PERM_READ,
          STATE_LEN, STATE_LEN, s_state}},
     [IDX_STATE_CCCD] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+         sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
+
+    [IDX_LOG_DECL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
+         sizeof(uint8_t), sizeof(PROP_LOG), (uint8_t*)&PROP_LOG}},
+    [IDX_LOG_VAL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_128, UUID_LOG, ESP_GATT_PERM_READ,
+         LOG_MAX, 1, s_log}},
+    [IDX_LOG_CCCD] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
 
@@ -207,10 +232,13 @@ static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) 
             maybe_start_advertising();
             break;
         case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
-            if (param->adv_start_cmpl.status == ESP_BT_STATUS_SUCCESS)
+            if (param->adv_start_cmpl.status == ESP_BT_STATUS_SUCCESS) {
+                if (!s_connected) s_public_state = ROCKY_BLE_READY;
                 ESP_LOGI(TAG, "advertising as Rocky Arcade");
-            else
+            } else {
+                s_public_state = ROCKY_BLE_DISABLED;
                 ESP_LOGE(TAG, "advertising failed: %d", param->adv_start_cmpl.status);
+            }
             break;
         default:
             break;
@@ -241,17 +269,21 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
             }
             memcpy(s_handles, param->add_attr_tab.handles, sizeof(s_handles));
             esp_ble_gatts_start_service(s_handles[IDX_SVC]);
+            s_log_len = focus_ble_get_log(s_log, sizeof(s_log));
+            esp_ble_gatts_set_attr_value(s_handles[IDX_LOG_VAL], s_log_len, s_log);
             break;
 
         case ESP_GATTS_CONNECT_EVT:
             s_connected = true;
+            s_public_state = ROCKY_BLE_CONNECTED;
             s_conn_id = param->connect.conn_id;
             ESP_LOGI(TAG, "phone connected");
             break;
 
         case ESP_GATTS_DISCONNECT_EVT:
             s_connected = false;
-            s_cfg_notify = s_state_notify = false;
+            s_public_state = ROCKY_BLE_STARTING;
+            s_cfg_notify = s_state_notify = s_log_notify = false;
             ESP_LOGI(TAG, "phone disconnected; advertising again");
             esp_ble_gap_start_advertising(&ADV_PARAMS);
             break;
@@ -267,6 +299,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                 bool enabled = get16(param->write.value) == 1;
                 if (param->write.handle == s_handles[IDX_CFG_CCCD]) s_cfg_notify = enabled;
                 if (param->write.handle == s_handles[IDX_STATE_CCCD]) s_state_notify = enabled;
+                if (param->write.handle == s_handles[IDX_LOG_CCCD]) s_log_notify = enabled;
             }
             break;
 
@@ -279,13 +312,15 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
 
 void rocky_ble_init(void) {
     if (s_started) return;
+    s_public_state = ROCKY_BLE_STARTING;
     pack_config();
     pack_state();
+    s_log_len = focus_ble_get_log(s_log, sizeof(s_log));
 
     esp_err_t err = esp_hosted_bt_controller_init();
-    if (err != ESP_OK) { ESP_LOGE(TAG, "controller init: %s", esp_err_to_name(err)); return; }
+    if (err != ESP_OK) { s_public_state = ROCKY_BLE_DISABLED; ESP_LOGE(TAG, "controller init: %s", esp_err_to_name(err)); return; }
     err = esp_hosted_bt_controller_enable();
-    if (err != ESP_OK) { ESP_LOGE(TAG, "controller enable: %s", esp_err_to_name(err)); return; }
+    if (err != ESP_OK) { s_public_state = ROCKY_BLE_DISABLED; ESP_LOGE(TAG, "controller enable: %s", esp_err_to_name(err)); return; }
 
     hosted_hci_bluedroid_open();
     esp_bluedroid_hci_driver_operations_t operations = {
@@ -305,7 +340,7 @@ void rocky_ble_init(void) {
 }
 
 void rocky_ble_poll(void) {
-    if (!s_started) return;
+    if (!s_started || s_handles[IDX_SVC] == 0) return;
 
     uint8_t staged[CFG_LEN];
     bool apply = false;
@@ -342,7 +377,20 @@ void rocky_ble_poll(void) {
             esp_ble_gatts_send_indicate(s_gatts_if, s_conn_id, s_handles[IDX_STATE_VAL],
                                         STATE_LEN, s_state, false);
     }
+
+    s_log_len = focus_ble_get_log(s_log, sizeof(s_log));
+    if (s_log_len != s_last_log_len || memcmp(s_log, s_last_log, s_log_len) != 0) {
+        memcpy(s_last_log, s_log, s_log_len);
+        s_last_log_len = s_log_len;
+        esp_ble_gatts_set_attr_value(s_handles[IDX_LOG_VAL], s_log_len, s_log);
+        if (s_connected && s_log_notify)
+            esp_ble_gatts_send_indicate(s_gatts_if, s_conn_id, s_handles[IDX_LOG_VAL],
+                                        s_log_len, s_log, false);
+    }
 }
+
+RockyBleState rocky_ble_state(void) { return s_public_state; }
+const char* rocky_ble_device_name(void) { return "Rocky Arcade"; }
 
 #else
 
@@ -351,5 +399,7 @@ void rocky_ble_init(void) {
 }
 
 void rocky_ble_poll(void) {}
+RockyBleState rocky_ble_state(void) { return ROCKY_BLE_DISABLED; }
+const char* rocky_ble_device_name(void) { return "Rocky Arcade"; }
 
 #endif
