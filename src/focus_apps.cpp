@@ -8,9 +8,11 @@
 #include "app_audio.h"
 #include "art_store.h"
 #include "rocky.h"
+#include "rocky_ble.h"
 #include "esp_lvgl_port.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "nvs.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -41,6 +43,11 @@ static uint32_t  s_pomo_remaining = 25 * 60;
 static uint32_t  s_pomo_total = 25 * 60;
 static int64_t   s_pomo_deadline_us = 0;
 static uint16_t  s_focus_minutes = 25;
+static uint16_t  s_sprint_minutes = 10;
+static uint16_t  s_break_minutes = 5;
+static uint16_t  s_long_break_minutes = 15;
+static uint8_t   s_work_segment = 0;
+static uint16_t  s_session_count = 0;
 
 static bool      s_sw_running = false;
 static int64_t   s_sw_started_us = 0;
@@ -56,10 +63,13 @@ static lv_obj_t* s_pomo_scr = nullptr;
 static lv_obj_t* s_pomo_digits = nullptr;
 static lv_obj_t* s_pomo_status = nullptr;
 static lv_obj_t* s_pomo_hint = nullptr;
-static lv_obj_t* s_pomo_progress = nullptr;
 static lv_obj_t* s_pomo_presets = nullptr;
 static lv_obj_t* s_pomo_controls = nullptr;
 static lv_obj_t* s_pomo_primary_lbl = nullptr;
+static constexpr uint8_t POMO_TICK_COUNT = 60;
+static lv_obj_t* s_pomo_tick_frame = nullptr;
+static int8_t s_pomo_last_tick = -1;
+static int8_t s_pomo_last_tick_state = -1;
 
 // Stopwatch screen refs.
 static lv_obj_t* s_sw_scr = nullptr;
@@ -80,6 +90,42 @@ bool focus_pomodoro_running(void) {
 }
 
 bool focus_stopwatch_running(void) { return s_sw_running; }
+
+void focus_ble_get_config(uint16_t out[4]) {
+    out[0] = s_focus_minutes;
+    out[1] = s_sprint_minutes;
+    out[2] = s_break_minutes;
+    out[3] = s_long_break_minutes;
+}
+
+bool focus_ble_set_config(const uint16_t minutes[4]) {
+    if (!minutes) return false;
+    for (int i = 0; i < 4; ++i) if (minutes[i] < 1 || minutes[i] > 180) return false;
+    s_focus_minutes = minutes[0];
+    s_sprint_minutes = minutes[1];
+    s_break_minutes = minutes[2];
+    s_long_break_minutes = minutes[3];
+    if (s_pomo == POMO_READY) s_pomo_total = s_pomo_remaining = (uint32_t)s_focus_minutes * 60;
+    nvs_handle_t h;
+    if (nvs_open("pomo", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u16(h, "focus", s_focus_minutes);
+        nvs_set_u16(h, "sprint", s_sprint_minutes);
+        nvs_set_u16(h, "break", s_break_minutes);
+        nvs_set_u16(h, "long", s_long_break_minutes);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    return true;
+}
+
+void focus_ble_get_state(uint8_t* state, uint8_t* segment, uint16_t* sessions,
+                         uint32_t* remaining_sec, uint32_t* total_sec) {
+    if (state) *state = (uint8_t)s_pomo; // ordinals 0..6 match the original Rocky app
+    if (segment) *segment = s_work_segment;
+    if (sessions) *sessions = s_session_count;
+    if (remaining_sec) *remaining_sec = s_pomo_remaining;
+    if (total_sec) *total_sec = s_pomo_total;
+}
 
 static void style_screen(lv_obj_t* scr) {
     lv_obj_set_style_bg_color(scr, lv_color_hex(BG), 0);
@@ -129,6 +175,106 @@ static void format_clock(char* out, size_t n, uint32_t sec, bool hours) {
     else snprintf(out, n, "%02lu:%02lu", (unsigned long)m, (unsigned long)s);
 }
 
+// A full lap is one minute.  A single custom-drawn object renders the 60 teeth so the
+// animation costs one LVGL object instead of 60.  One tooth falls dark each second,
+// then the frame relights at the minute boundary like a mechanical escapement.
+static void pomo_tick_area(uint8_t i, lv_area_t* a) {
+    constexpr int left = 34;
+    constexpr int right = 566;
+    constexpr int top = 118;
+    constexpr int bottom = 682;
+    constexpr int h_count = 16;
+    constexpr int v_count = 14;
+    constexpr int h_w = 23;
+    constexpr int h_h = 8;
+    constexpr int v_w = 8;
+    constexpr int v_h = 24;
+
+    if (i < h_count) {
+        int x = left + 18 + (i * (right - left - 36 - h_w)) / (h_count - 1);
+        *a = {x, top, x + h_w - 1, top + h_h - 1};
+    } else if (i < h_count + v_count) {
+        int j = i - h_count;
+        int y = top + 22 + (j * (bottom - top - 44 - v_h)) / (v_count - 1);
+        *a = {right - v_w, y, right - 1, y + v_h - 1};
+    } else if (i < 2 * h_count + v_count) {
+        int j = (2 * h_count + v_count - 1) - i;
+        int x = left + 18 + (j * (right - left - 36 - h_w)) / (h_count - 1);
+        *a = {x, bottom - h_h, x + h_w - 1, bottom - 1};
+    } else {
+        int j = (2 * h_count + 2 * v_count - 1) - i;
+        int y = top + 22 + (j * (bottom - top - 44 - v_h)) / (v_count - 1);
+        *a = {left, y, left + v_w - 1, y + v_h - 1};
+    }
+}
+
+static uint8_t pomo_tick_elapsed(void) {
+    uint32_t seconds = s_pomo_remaining % POMO_TICK_COUNT;
+    if (seconds == 0 && s_pomo_remaining > 0) seconds = POMO_TICK_COUNT;
+    return (uint8_t)(POMO_TICK_COUNT - seconds);
+}
+
+static void draw_pomo_ticks(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_DRAW_MAIN) return;
+    lv_layer_t* layer = lv_event_get_layer(e);
+    uint8_t elapsed = pomo_tick_elapsed();
+    bool active = s_pomo != POMO_READY;
+    bool paused = pomo_is_paused();
+    bool complete = s_pomo == POMO_FOCUS_DONE || s_pomo == POMO_BREAK_DONE;
+
+    for (uint8_t i = 0; i < POMO_TICK_COUNT; ++i) {
+        lv_opa_t opa = LV_OPA_30;
+        if (complete) opa = LV_OPA_COVER;
+        else if (!active) opa = (i % 5 == 0) ? LV_OPA_70 : LV_OPA_30;
+        else if (i >= elapsed) opa = paused ? LV_OPA_50 : LV_OPA_COVER;
+        bool head = active && !paused && !complete && elapsed < POMO_TICK_COUNT && i == elapsed;
+
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.bg_color = lv_color_hex(complete ? GOLD : (head ? 0xFFF2B0 : ((i & 1) ? GOLD : ORANGE)));
+        d.bg_opa = opa;
+        d.radius = 4;
+        lv_area_t a;
+        pomo_tick_area(i, &a);
+        lv_draw_rect(layer, &d, &a);
+    }
+}
+
+static void create_pomo_ticks(lv_obj_t* parent) {
+    s_pomo_tick_frame = lv_obj_create(parent);
+    lv_obj_set_size(s_pomo_tick_frame, 600, 1024);
+    lv_obj_set_pos(s_pomo_tick_frame, 0, 0);
+    lv_obj_set_style_bg_opa(s_pomo_tick_frame, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_pomo_tick_frame, 0, 0);
+    lv_obj_set_style_pad_all(s_pomo_tick_frame, 0, 0);
+    lv_obj_remove_flag(s_pomo_tick_frame, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_pomo_tick_frame, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_pomo_tick_frame, draw_pomo_ticks, LV_EVENT_DRAW_MAIN, nullptr);
+    s_pomo_last_tick = -1;
+    s_pomo_last_tick_state = -1;
+}
+
+static void refresh_pomo_ticks(void) {
+    if (!s_pomo_tick_frame) return;
+    int8_t elapsed = (int8_t)pomo_tick_elapsed();
+    int8_t state = (int8_t)s_pomo;
+    if (s_pomo_last_tick_state != state || s_pomo_last_tick < 0 || elapsed < s_pomo_last_tick) {
+        lv_obj_invalidate(s_pomo_tick_frame);
+    } else if (elapsed != s_pomo_last_tick) {
+        lv_area_t a;
+        if (s_pomo_last_tick < POMO_TICK_COUNT) {
+            pomo_tick_area((uint8_t)s_pomo_last_tick, &a);
+            lv_obj_invalidate_area(s_pomo_tick_frame, &a);
+        }
+        if (elapsed < POMO_TICK_COUNT) {
+            pomo_tick_area((uint8_t)elapsed, &a);
+            lv_obj_invalidate_area(s_pomo_tick_frame, &a);
+        }
+    }
+    s_pomo_last_tick = elapsed;
+    s_pomo_last_tick_state = state;
+}
+
 static void pomo_refresh(void) {
     if (!s_pomo_scr || lv_screen_active() != s_pomo_scr) return;
 
@@ -160,12 +306,14 @@ static void pomo_refresh(void) {
         lv_obj_add_flag(s_pomo_presets, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_pomo_controls, LV_OBJ_FLAG_HIDDEN);
     }
-    int pct = s_pomo_total ? (int)(((uint64_t)(s_pomo_total - s_pomo_remaining) * 100) / s_pomo_total) : 0;
-    lv_bar_set_value(s_pomo_progress, pct, LV_ANIM_OFF);
+    refresh_pomo_ticks();
 }
 
 static void pomo_complete(void) {
-    if (s_pomo == POMO_FOCUS_RUNNING) s_pomo = POMO_FOCUS_DONE;
+    if (s_pomo == POMO_FOCUS_RUNNING) {
+        s_pomo = POMO_FOCUS_DONE;
+        ++s_session_count;
+    }
     else if (s_pomo == POMO_BREAK_RUNNING) s_pomo = POMO_BREAK_DONE;
     else return;
     s_pomo_remaining = 0;
@@ -213,16 +361,37 @@ static void service_cb(lv_timer_t*) {
     pomo_refresh();
     sw_refresh();
     rocky_poll();
+    rocky_ble_poll();
 }
 
 void focus_apps_init(void) {
+    nvs_handle_t h;
+    uint16_t saved[4] = {s_focus_minutes, s_sprint_minutes, s_break_minutes, s_long_break_minutes};
+    if (nvs_open("pomo", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u16(h, "focus", &saved[0]);
+        nvs_get_u16(h, "sprint", &saved[1]);
+        nvs_get_u16(h, "break", &saved[2]);
+        nvs_get_u16(h, "long", &saved[3]);
+        nvs_close(h);
+        bool valid = true;
+        for (int i = 0; i < 4; ++i) valid &= saved[i] >= 1 && saved[i] <= 180;
+        if (valid) {
+            s_focus_minutes = saved[0];
+            s_sprint_minutes = saved[1];
+            s_break_minutes = saved[2];
+            s_long_break_minutes = saved[3];
+            s_pomo_total = s_pomo_remaining = (uint32_t)s_focus_minutes * 60;
+        }
+    }
     art_image("bg_stopwatch", &s_bg_stopwatch);
     if (!s_service) s_service = lv_timer_create(service_cb, 250, nullptr);
 }
 
 static void pomo_screen_deleted(lv_event_t*) {
     s_pomo_scr = s_pomo_digits = s_pomo_status = s_pomo_hint = nullptr;
-    s_pomo_progress = s_pomo_presets = s_pomo_controls = s_pomo_primary_lbl = nullptr;
+    s_pomo_presets = s_pomo_controls = s_pomo_primary_lbl = nullptr;
+    s_pomo_tick_frame = nullptr;
+    s_pomo_last_tick = s_pomo_last_tick_state = -1;
 }
 
 static void on_rocky_tap(lv_event_t*) { rocky_set_expression(ROCKY_LOOK); }
@@ -232,6 +401,7 @@ static void on_preset(lv_event_t* e) {
     s_pomo_total = s_pomo_remaining = (uint32_t)s_focus_minutes * 60;
     s_pomo_deadline_us = esp_timer_get_time() + (int64_t)s_pomo_remaining * 1000000;
     s_pomo = POMO_FOCUS_RUNNING;
+    ++s_work_segment;
     rocky_set_expression(ROCKY_LOOK);
     pomo_refresh();
 }
@@ -244,7 +414,7 @@ static void on_pomo_primary(lv_event_t*) {
         s_pomo_deadline_us = esp_timer_get_time() + (int64_t)s_pomo_remaining * 1000000;
         s_pomo = (s_pomo == POMO_FOCUS_PAUSED) ? POMO_FOCUS_RUNNING : POMO_BREAK_RUNNING;
     } else if (s_pomo == POMO_FOCUS_DONE) {
-        s_pomo_total = s_pomo_remaining = 5 * 60;
+        s_pomo_total = s_pomo_remaining = (uint32_t)s_break_minutes * 60;
         s_pomo_deadline_us = esp_timer_get_time() + (int64_t)s_pomo_remaining * 1000000;
         s_pomo = POMO_BREAK_RUNNING;
     } else if (s_pomo == POMO_BREAK_DONE) {
@@ -271,6 +441,8 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_add_event_cb(scr, pomo_screen_deleted, LV_EVENT_DELETE, nullptr);
     add_header(scr, "FOCUS", home_cb);
 
+    create_pomo_ticks(scr);
+
     // Deliberately quiet: gaze, countdown, progress, controls. Nothing else.
     lv_obj_t* face = rocky_create(scr, 300, 305, 0.90f);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
@@ -283,15 +455,6 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     s_pomo_hint = label(scr, "", &lv_font_montserrat_20, MUTED);
     lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_MID, 0, 575);
 
-    s_pomo_progress = lv_bar_create(scr);
-    lv_obj_set_size(s_pomo_progress, 500, 12);
-    lv_obj_align(s_pomo_progress, LV_ALIGN_TOP_MID, 0, 625);
-    lv_obj_set_style_bg_color(s_pomo_progress, lv_color_hex(PANEL), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_pomo_progress, lv_color_hex(ORANGE), LV_PART_INDICATOR);
-    lv_obj_set_style_radius(s_pomo_progress, 6, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_pomo_progress, 6, LV_PART_INDICATOR);
-    lv_bar_set_range(s_pomo_progress, 0, 100);
-
     s_pomo_presets = lv_obj_create(scr);
     lv_obj_set_size(s_pomo_presets, 560, 210);
     lv_obj_align(s_pomo_presets, LV_ALIGN_BOTTOM_MID, 0, -58);
@@ -299,8 +462,9 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_set_style_border_width(s_pomo_presets, 0, 0);
     lv_obj_set_style_pad_all(s_pomo_presets, 0, 0);
     lv_obj_remove_flag(s_pomo_presets, LV_OBJ_FLAG_SCROLLABLE);
-    const uint16_t mins[] = {10, 25, 45};
-    const char* names[] = {"10 min", "25 min", "45 min"};
+    const uint16_t mins[] = {s_sprint_minutes, s_focus_minutes, 45};
+    char names[3][12];
+    for (int i = 0; i < 3; ++i) snprintf(names[i], sizeof(names[i]), "%u min", mins[i]);
     for (int i = 0; i < 3; ++i) {
         lv_obj_t* b = button(s_pomo_presets, names[i], 168, 96, i == 1 ? ORANGE : PANEL,
                              on_preset, (void*)(uintptr_t)mins[i]);

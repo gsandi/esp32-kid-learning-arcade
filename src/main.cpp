@@ -42,6 +42,7 @@
 #include "art_store.h"
 #include "clock_faces.h"
 #include "focus_apps.h"
+#include "rocky_ble.h"
 
 #define TAG "kid_arcade"
 
@@ -2793,6 +2794,7 @@ extern "C" void app_main(void) {
     focus_apps_init();
     slave_ota_check_and_run();
     wifi_init();
+    rocky_ble_init();
     sd_init();
     sd_load_questions();
 

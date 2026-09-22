@@ -4110,3 +4110,57 @@ or half-connected tile in this firmware change.
 </task-notification>
 
 **Work done:** *(in progress)*
+
+---
+
+## 2026-09-22 02:26:21
+
+**Prompt:** Read-only design and implementation research. In /Users/sandi/workspace/startup/kid_arcade, deeply inspect the current clock/watch implementation, assets/orb, the generated steampunk India dial, and any local Orb review/source references you can find (including /Users/sandi/workspace/startup/pomodoro_esp32_s3 and the authorized personal Obsidian vault). The user says the upper watch is not as clean as the steampunk Orb-like clock and especially liked the 3D embossed option. Determine exactly why, identify Orb techniques/assets worth reusing, and propose a concrete premium redesign for the upper 466x466 face that works safely in LVGL 9 on a 600x1024 ESP32-P4. Also assess the planned 60-segment ticking perimeter for Rocky Focus. Do not modify files, do not commit, do not browse the public internet. Return precise paths, visual direction, implementation steps, and memory/performance risks.
+
+**Work done:** *(in progress)*
+
+---
+
+## 2026-09-22 02:32:02
+
+**Prompt:** <task-notification>
+<task-id>b09bt1o3v</task-id>
+<tool-use-id>toolu_01QhDoCP1vAcjyztaiuf6Ry9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-sandi-workspace-startup-kid-arcade/8b3aa963-ee25-4b0e-84c1-9a05f8ef1a2a/tasks/b09bt1o3v.output</output-file>
+<status>completed</status>
+<summary>Background command "Find recent generated dial candidates" completed (exit code 0)</summary>
+</task-notification>
+
+**Work done:** (completed 2026-09-22 02:36:19)
+
+The "3D embossed option" you liked is Orb's **Imperial Signal** face (`assets/orb/dial_img.h`). It was the lower clock in `6fc5d1c`, then replaced by the India steampunk dial in `491a0af`. I changed no repo files; I rendered the art to `/tmp/orbreview` to inspect it. The full plan is in `~/.claude/plans/read-only-design-and-implementation-polished-marble.md`.
+
+**Codex is editing the same files right now, uncommitted.** `clock_faces.cpp` already puts Imperial on top in place of the Aviator, `bake_art.py` bakes it, and `focus_apps.cpp` has a 60-tooth ticking perimeter. Nothing below should be implemented until Codex has finished and committed.
+
+**Why the upper watch (Aviator) looks less clean**
+1. **Flat plate.** `dial_avi.h` is matte cream paper with printed stencil numbers and no light or shadow. Steampunk and Imperial have relief baked in from one light direction. Code can't add that to a flat print.
+2. **Inverted brightness.** A bright disc on a black panel reads like a sticker. Premium dials are dark plates with bright raised details.
+3. **Style clash.** Ornate, low-resolution hand art (47×159 px) sits on a military stencil dial, and LVGL's rotation blurs the filigree.
+4. **Poor text and details.** The date uses upright Montserrat letters at a fixed spacing, so gaps are uneven. The 2 px sub-seconds needle and flat centre discs look crude on a photo texture.
+5. **Hands drawn as separate `lv_image` objects** above the dial. This is a known Orb problem area, and it uses LVGL's 64 KB internal memory pool every tick.
+
+**Gap in Codex's swap:** Imperial now gets flat brass hands (`COL_HAND = 0xE6B858`, the steampunk colour). The original was silver `E4E9F0` with a navy edge. So the most three-dimensional dial now has the flattest hands.
+
+**Proposed "Imperial Relief" redesign**, keeping Orb's Imperial art unchanged:
+- **Lit ridge hands.** Split each hand along its spine into two triangles and shade each side from a fixed top-left light. The ridge turns correctly with the hand and needs no image assets. The two-triangle split already exists in `draw_hand_at` (`src/clock_faces.cpp:145`).
+- **Soft shadows.** Draw two offset shadow passes at `(+2,+5)` and `(+1,+3)`. Follow Orb's rule of drawing all shadows first, then all hands (`clock_view.cpp:1095`).
+- **Seconds hand and centre.** A slim silver seconds hand with a crimson tip and a small counterweight, and a layered "jewelled" centre cap.
+- **Date wheel.** Off-white wheel with navy Montserrat 24 digits inside the dial's window, around `(233,328)`.
+- **Optional glass glint.** A faint highlight over the upper left, blended into the image after the hands are drawn.
+- **Matching India face.** Same hand system in brass, same light direction, and an engraved "INDIA IST" label.
+- **Plate copy in PSRAM.** Copy each dial image to PSRAM once instead of re-reading it from flash every second.
+- **Only if needed:** hand images made on the Mac and drawn with Orb's rotation code (`blend_custom_hand`). Not `lv_image` rotation.
+
+**60-segment perimeter for Rocky Focus.** The idea is right; it copies the pomodoro "minute wheel". Codex's version has four problems:
+1. **Whole-screen redraws.** Every 250 ms it updates the style of all 60 teeth, even unchanged ones. Each update marks that tooth for redraw (`lv_obj_style.c:382`). LVGL tracks only 32 such areas, then redraws the whole screen (`lv_refr.c:323`). The result is four full 600×1024 redraws a second through software rotation.
+2. **Memory.** 60 objects take roughly 10–12 KB of LVGL's 64 KB pool. That pool has already run out once (comment at `focus_apps.cpp:387`).
+3. **Uneven spacing.** Teeth are about 31.5 px apart on the top and bottom but about 38 px on the sides, and the corners are empty.
+4. **No session progress.** The progress bar was removed, so the digits are the only sign of how much of the block remains.
+
+**Fix:** draw all 60 teeth in one object with a custom draw callback:
+- Space teeth evenly along a rounded rectangle, giving about 37 p

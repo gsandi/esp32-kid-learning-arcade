@@ -14,7 +14,7 @@ Layout (all little-endian):
 RGB565A8 is LVGL 9's planar layout: the whole RGB565 map, then the whole A8 map.
 
 Sources:
-    assets/orb/dial_avi.h                          (uint16 array from orb-os)
+    assets/orb/dial_img.h                          (Orb Imperial Signal, uint16)
     assets/clocks/steampunk-india.png              (opaque RGB clock plate)
     assets/icons/*.png                              (launcher icons, any size, RGBA)
 
@@ -56,7 +56,7 @@ def png_rgb565(path):
     return w, h, bytes(blob)
 
 entries = []  # (name, w, h, fmt, blob)
-entries.append(('dial_avi', 466, 466, 0, parse_u16_header(os.path.join(ROOT, 'assets/orb/dial_avi.h'), 466, 466)))
+entries.append(('dial_local', 466, 466, 0, parse_u16_header(os.path.join(ROOT, 'assets/orb/dial_img.h'), 466, 466)))
 sw, sh, steam = png_rgb565(os.path.join(ROOT, 'assets/clocks/steampunk-india.png'))
 assert (sw, sh) == (466, 466), f'steampunk dial is {sw}x{sh}, expected 466x466'
 entries.append(('dial_steam', sw, sh, 0, steam))
