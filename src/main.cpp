@@ -43,6 +43,7 @@
 #include "clock_faces.h"
 #include "focus_apps.h"
 #include "rocky_ble.h"
+#include "voice_notes.h"
 
 #define TAG "kid_arcade"
 
@@ -1181,10 +1182,11 @@ static void add_home_button(lv_obj_t* scr) {
 static void on_launch_arcade(lv_event_t* e) { launch_arcade(); }
 static void on_launch_focus(lv_event_t* e) { focus_show_pomodoro(on_back_to_launcher); }
 static void on_launch_stopwatch(lv_event_t* e) { focus_show_stopwatch(on_back_to_launcher); }
+static void on_launch_voice(lv_event_t* e) { voice_notes_show(on_back_to_launcher); }
 static void on_launch_settings(lv_event_t* e) { launch_settings(); }
 
 static lv_image_dsc_t g_icon_arcade = {};
-static lv_image_dsc_t g_icon_rocky = {};
+static lv_image_dsc_t g_icon_focus = {};
 static lv_image_dsc_t g_icon_stopwatch = {};
 static lv_image_dsc_t g_icon_settings = {};
 
@@ -1203,7 +1205,7 @@ static lv_obj_t* make_app_tile(lv_obj_t* parent, const lv_image_dsc_t* icon,
     lv_obj_set_style_border_width(t, 1, 0);
     lv_obj_set_style_border_color(t, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_border_opa(t, 38, 0);
-    lv_obj_set_style_shadow_width(t, 36, 0);
+    lv_obj_set_style_shadow_width(t, 14, 0);
     lv_obj_set_style_shadow_color(t, lv_color_hex(0x000000), 0);
     lv_obj_set_style_shadow_opa(t, 140, 0);
     lv_obj_set_style_shadow_ofs_y(t, 14, 0);
@@ -1305,7 +1307,7 @@ static void show_clock(lv_timer_t*) {
     // the launcher before Focus/Stopwatch started, so gate the transition here
     // at the final point of entry rather than relying on touch activity to keep
     // postponing it. Paused focus sessions are intentionally included.
-    if (focus_pomodoro_running() || focus_stopwatch_running()) {
+    if (focus_pomodoro_running() || focus_stopwatch_running() || voice_notes_recording()) {
         g_idle_timer = lv_timer_create(show_clock, IDLE_TIMEOUT_MS, NULL);
         lv_timer_set_repeat_count(g_idle_timer, 1);
         ESP_LOGI(TAG, "screensaver deferred while timer is active");
@@ -1411,13 +1413,32 @@ static void show_home(void) {
     // ── App grid: generated artwork, compact labels ───────────────────────
     // Four real apps now share the launcher. The art lives in the mapped data
     // partition so adding it does not squeeze the 4 MB OTA app slot.
-    const int TILE_W = 250, TILE_H = 250, TILE_GAP = 20;
+    const int TILE_W = 220, TILE_H = 220, TILE_GAP = 18;
     const int GRID_X = (SCR_W - (TILE_W * 2 + TILE_GAP)) / 2;
-    const int ROW_1 = 410, ROW_2 = ROW_1 + TILE_H + TILE_GAP;
+    const int ROW_1 = 390, ROW_2 = ROW_1 + TILE_H + TILE_GAP;
+
+    lv_obj_t* voice_tile = make_app_tile(scr, NULL, "Voice Notes", 0x4A1830, 0x250B19,
+                                         GRID_X, 250, TILE_W * 2 + TILE_GAP, 118,
+                                         on_launch_voice);
+    lv_obj_t* mic_dot = lv_obj_create(voice_tile);
+    lv_obj_set_size(mic_dot, 48, 48);
+    lv_obj_align(mic_dot, LV_ALIGN_LEFT_MID, 24, 0);
+    lv_obj_set_style_radius(mic_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(mic_dot, lv_color_hex(0xE34A5F), 0);
+    lv_obj_set_style_bg_opa(mic_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(mic_dot, 5, 0);
+    lv_obj_set_style_border_color(mic_dot, lv_color_hex(0xFF9AAA), 0);
+    lv_obj_set_style_pad_all(mic_dot, 0, 0);
+    lv_obj_remove_flag(mic_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(mic_dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* voice_sub = make_label(voice_tile,
+        voice_notes_available() ? "Record here - collect in Rocky app" : "Insert SD card to enable",
+        &lv_font_montserrat_18, C_SUBTEXT);
+    lv_obj_align(voice_sub, LV_ALIGN_CENTER, 52, -16);
 
     make_app_tile(scr, &g_icon_arcade, "Arcade", C_MATH, C_MATH_DK,
                   GRID_X, ROW_1, TILE_W, TILE_H, on_launch_arcade);
-    lv_obj_t* focus_tile = make_app_tile(scr, &g_icon_rocky, "Rocky Focus", 0x5D3A8C, 0x3B225F,
+    lv_obj_t* focus_tile = make_app_tile(scr, &g_icon_focus, "Rocky Focus", 0x5D3A8C, 0x3B225F,
                   GRID_X + TILE_W + TILE_GAP, ROW_1, TILE_W, TILE_H, on_launch_focus);
     lv_obj_t* sw_tile = make_app_tile(scr, &g_icon_stopwatch, "Stopwatch", 0x168F93, 0x0C5C68,
                   GRID_X, ROW_2, TILE_W, TILE_H, on_launch_stopwatch);
@@ -2612,18 +2633,39 @@ static void show_admin(void) {
 // for WiFi (slot 1) — use dummy init/deinit to avoid double-init in IDF 6.x.
 
 static bool g_sd_mounted = false;
+static esp_ldo_channel_handle_t g_peripheral_pwr_chan = NULL;
 
 static esp_err_t sdmmc_host_no_init(void)   { return ESP_OK; }
 static esp_err_t sdmmc_host_no_deinit(void) { return ESP_OK; }
 
+static bool enable_peripheral_power(void) {
+    if (g_peripheral_pwr_chan) return true;
+    esp_ldo_channel_config_t ldo_cfg = {
+        .chan_id = 4,
+        .voltage_mv = 3300,
+    };
+    esp_err_t err = esp_ldo_acquire_channel(&ldo_cfg, &g_peripheral_pwr_chan);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LDO4 peripheral power failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    // Elecrow powers the SD/audio domain from LDO4. Give the rail and card
+    // pull-ups time to settle before the first 400 kHz SD identification pass.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "LDO4 peripheral power ready (3.3 V)");
+    return true;
+}
+
 static bool sd_init(void) {
+    if (!enable_peripheral_power()) return false;
     esp_vfs_fat_sdmmc_mount_config_t mcfg = {
         .format_if_mount_failed = false,
-        .max_files              = 4,
+        .max_files              = 8,
         .allocation_unit_size   = 16 * 1024,
     };
     sdmmc_host_t host  = SDMMC_HOST_DEFAULT();
     host.slot          = SDMMC_HOST_SLOT_0;
+    host.max_freq_khz  = 10000;                  // Elecrow reference setting
     host.init          = sdmmc_host_no_init;    // esp_hosted already init'd the host
     host.deinit        = sdmmc_host_no_deinit;
 
@@ -2880,6 +2922,9 @@ extern "C" void app_main(void) {
     // (backlight handled by LEDC; configured before display init)
 
     enable_dsi_phy_power();
+    // LDO4 powers the board's peripheral/SD domain. Bring it up alongside the
+    // display rail so the card has several seconds to settle before probing.
+    enable_peripheral_power();
 
     // MIPI DSI bus
     esp_lcd_dsi_bus_handle_t dsi_bus;
@@ -2899,15 +2944,15 @@ extern "C" void app_main(void) {
     esp_lcd_dpi_panel_config_t dpi_cfg = {};
     dpi_cfg.virtual_channel    = 0;
     dpi_cfg.dpi_clk_src        = MIPI_DSI_DPI_CLK_SRC_DEFAULT;
-    dpi_cfg.dpi_clock_freq_mhz = 52;
+    dpi_cfg.dpi_clock_freq_mhz = 51;
     dpi_cfg.in_color_format    = LCD_COLOR_FMT_RGB565;
     dpi_cfg.num_fbs            = 1;
     dpi_cfg.video_timing.h_size            = 1024;
     dpi_cfg.video_timing.v_size            = 600;
-    dpi_cfg.video_timing.hsync_pulse_width = 10;
+    dpi_cfg.video_timing.hsync_pulse_width = 70;
     dpi_cfg.video_timing.hsync_back_porch  = 160;
     dpi_cfg.video_timing.hsync_front_porch = 160;
-    dpi_cfg.video_timing.vsync_pulse_width = 1;
+    dpi_cfg.video_timing.vsync_pulse_width = 10;
     dpi_cfg.video_timing.vsync_back_porch  = 23;
     dpi_cfg.video_timing.vsync_front_porch = 12;
 
@@ -2934,14 +2979,16 @@ extern "C" void app_main(void) {
     lvgl_port_display_cfg_t disp_cfg = {};
     disp_cfg.io_handle    = panel_io;
     disp_cfg.panel_handle = panel;
-    disp_cfg.buffer_size  = DISPLAY_WIDTH * 50;
-    disp_cfg.double_buffer = false;
+    // Full-screen double buffers in PSRAM match Elecrow's reference path and
+    // prevent partial updates from becoming visible as flicker/ghost trails.
+    disp_cfg.buffer_size  = DISPLAY_WIDTH * DISPLAY_HEIGHT;
+    disp_cfg.double_buffer = true;
     disp_cfg.hres          = DISPLAY_WIDTH;
     disp_cfg.vres          = DISPLAY_HEIGHT;
     disp_cfg.monochrome    = false;
     disp_cfg.color_format  = LV_COLOR_FORMAT_RGB565;
-    disp_cfg.flags.buff_dma    = 1;
-    disp_cfg.flags.buff_spiram = 0;
+    disp_cfg.flags.buff_dma    = 0;
+    disp_cfg.flags.buff_spiram = 1;
     disp_cfg.flags.sw_rotate   = 1;
     lvgl_port_display_dsi_cfg_t dsi_disp_cfg = {
         .flags = { .avoid_tearing = 0 },
@@ -2996,7 +3043,7 @@ extern "C" void app_main(void) {
     preload_bg_image();
     art_init();
     art_image("icon_arcade", &g_icon_arcade);
-    art_image("icon_rocky", &g_icon_rocky);
+    art_image("icon_focus", &g_icon_focus);
     art_image("icon_stopwatch", &g_icon_stopwatch);
     art_image("icon_settings", &g_icon_settings);
     focus_apps_init();
@@ -3005,6 +3052,7 @@ extern "C" void app_main(void) {
     rocky_ble_init();
     sd_init();
     sd_load_questions();
+    voice_notes_init(g_sd_mounted);
 
     show_clock();
 }

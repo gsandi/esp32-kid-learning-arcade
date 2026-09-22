@@ -9,6 +9,7 @@
 #include "art_store.h"
 #include "rocky.h"
 #include "rocky_ble.h"
+#include "voice_notes.h"
 #include "esp_lvgl_port.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -471,6 +472,7 @@ static void service_cb(lv_timer_t*) {
     sw_refresh();
     rocky_poll();
     rocky_ble_poll();
+    voice_notes_poll();
 }
 
 void focus_apps_init(void) {

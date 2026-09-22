@@ -1,5 +1,6 @@
 #include "rocky_ble.h"
 #include "focus_apps.h"
+#include "voice_notes.h"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -40,6 +41,12 @@ enum AttrIndex {
     IDX_LOG_DECL,
     IDX_LOG_VAL,
     IDX_LOG_CCCD,
+    IDX_NOTES_DECL,
+    IDX_NOTES_VAL,
+    IDX_NOTES_CCCD,
+    IDX_NOTE_SYNC_DECL,
+    IDX_NOTE_SYNC_VAL,
+    IDX_NOTE_SYNC_CCCD,
     IDX_INFO_DECL,
     IDX_INFO_VAL,
     IDX_COUNT,
@@ -56,6 +63,11 @@ static const uint8_t PROP_STATE = ESP_GATT_CHAR_PROP_BIT_READ |
 static const uint8_t PROP_INFO = ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t PROP_LOG = ESP_GATT_CHAR_PROP_BIT_READ |
                                 ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static const uint8_t PROP_NOTES = ESP_GATT_CHAR_PROP_BIT_READ |
+                                  ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static const uint8_t PROP_NOTE_SYNC = ESP_GATT_CHAR_PROP_BIT_READ |
+                                      ESP_GATT_CHAR_PROP_BIT_WRITE |
+                                      ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static uint8_t CCCD_OFF[2] = {0, 0};
 
 // ESP-IDF stores 128-bit UUIDs least-significant byte first.
@@ -74,6 +86,12 @@ static uint8_t UUID_INFO[16] = {
 static uint8_t UUID_LOG[16] = {
     0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x07,0x00,0x1d,0x6b
 };
+static uint8_t UUID_NOTES[16] = {
+    0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x08,0x00,0x1d,0x6b
+};
+static uint8_t UUID_NOTE_SYNC[16] = {
+    0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x09,0x00,0x1d,0x6b
+};
 
 static uint8_t s_cfg[CFG_LEN] = {};
 static uint8_t s_state[STATE_LEN] = {};
@@ -83,7 +101,15 @@ static uint8_t s_log[LOG_MAX] = {};
 static uint8_t s_last_log[LOG_MAX] = {0xFF};
 static size_t s_log_len = 1;
 static size_t s_last_log_len = 0;
-static uint8_t s_info[] = "0.3.0";
+static constexpr size_t NOTES_LEN = 4;
+static constexpr size_t NOTE_SYNC_LEN = 7;
+static constexpr size_t NOTE_SYNC_WRITE_MAX = 128;
+static uint8_t s_notes[NOTES_LEN] = {};
+static uint8_t s_last_notes[NOTES_LEN] = {0xFF};
+static uint8_t s_note_sync[NOTE_SYNC_LEN] = {};
+static uint8_t s_last_note_sync[NOTE_SYNC_LEN] = {0xFF};
+static uint8_t s_note_sync_write[NOTE_SYNC_WRITE_MAX] = {};
+static uint8_t s_info[] = "0.4.0";
 static uint16_t s_handles[IDX_COUNT] = {};
 static esp_gatt_if_t s_gatts_if = ESP_GATT_IF_NONE;
 static uint16_t s_conn_id = 0;
@@ -91,6 +117,8 @@ static bool s_connected = false;
 static bool s_cfg_notify = false;
 static bool s_state_notify = false;
 static bool s_log_notify = false;
+static bool s_notes_notify = false;
+static bool s_note_sync_notify = false;
 static uint8_t s_adv_pending = 0;
 static bool s_started = false;
 static volatile RockyBleState s_public_state = ROCKY_BLE_DISABLED;
@@ -128,6 +156,23 @@ static void pack_state(void) {
     put32(s_state + 8, total);
 }
 
+static void pack_notes(void) {
+    uint16_t total, pending;
+    voice_notes_counts(&total, &pending);
+    put16(s_notes, total);
+    put16(s_notes + 2, pending);
+}
+
+static void pack_note_sync(void) {
+    bool busy;
+    uint16_t planned, completed, delivered;
+    voice_notes_sync_progress(&busy, &planned, &completed, &delivered);
+    s_note_sync[0] = busy ? 1 : 0;
+    put16(s_note_sync + 1, planned);
+    put16(s_note_sync + 3, completed);
+    put16(s_note_sync + 5, delivered);
+}
+
 static const esp_gatts_attr_db_t GATT_DB[IDX_COUNT] = {
     [IDX_SVC] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_PRIMARY_SERVICE, ESP_GATT_PERM_READ,
@@ -160,6 +205,26 @@ static const esp_gatts_attr_db_t GATT_DB[IDX_COUNT] = {
         {ESP_UUID_LEN_128, UUID_LOG, ESP_GATT_PERM_READ,
          LOG_MAX, 1, s_log}},
     [IDX_LOG_CCCD] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+         sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
+
+    [IDX_NOTES_DECL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
+         sizeof(uint8_t), sizeof(PROP_NOTES), (uint8_t*)&PROP_NOTES}},
+    [IDX_NOTES_VAL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_128, UUID_NOTES, ESP_GATT_PERM_READ,
+         NOTES_LEN, NOTES_LEN, s_notes}},
+    [IDX_NOTES_CCCD] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+         sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
+
+    [IDX_NOTE_SYNC_DECL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
+         sizeof(uint8_t), sizeof(PROP_NOTE_SYNC), (uint8_t*)&PROP_NOTE_SYNC}},
+    [IDX_NOTE_SYNC_VAL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_128, UUID_NOTE_SYNC, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+         NOTE_SYNC_WRITE_MAX, NOTE_SYNC_LEN, s_note_sync_write}},
+    [IDX_NOTE_SYNC_CCCD] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
 
@@ -271,6 +336,10 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
             esp_ble_gatts_start_service(s_handles[IDX_SVC]);
             s_log_len = focus_ble_get_log(s_log, sizeof(s_log));
             esp_ble_gatts_set_attr_value(s_handles[IDX_LOG_VAL], s_log_len, s_log);
+            pack_notes();
+            pack_note_sync();
+            esp_ble_gatts_set_attr_value(s_handles[IDX_NOTES_VAL], NOTES_LEN, s_notes);
+            esp_ble_gatts_set_attr_value(s_handles[IDX_NOTE_SYNC_VAL], NOTE_SYNC_LEN, s_note_sync);
             break;
 
         case ESP_GATTS_CONNECT_EVT:
@@ -284,6 +353,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
             s_connected = false;
             s_public_state = ROCKY_BLE_STARTING;
             s_cfg_notify = s_state_notify = s_log_notify = false;
+            s_notes_notify = s_note_sync_notify = false;
             ESP_LOGI(TAG, "phone disconnected; advertising again");
             esp_ble_gap_start_advertising(&ADV_PARAMS);
             break;
@@ -295,11 +365,24 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                 memcpy(s_cfg_staged, param->write.value, CFG_LEN);
                 s_cfg_pending = true;
                 portEXIT_CRITICAL(&s_cfg_mux);
+            } else if (param->write.handle == s_handles[IDX_NOTE_SYNC_VAL] &&
+                       param->write.len > 0 && param->write.len < NOTE_SYNC_WRITE_MAX) {
+                char request[NOTE_SYNC_WRITE_MAX] = {};
+                memcpy(request, param->write.value, param->write.len);
+                char* token = strchr(request, '\n');
+                if (token) {
+                    *token++ = '\0';
+                    char* end = strpbrk(token, "\r\n");
+                    if (end) *end = '\0';
+                }
+                voice_notes_request_sync(request, token);
             } else if (param->write.len == 2) {
                 bool enabled = get16(param->write.value) == 1;
                 if (param->write.handle == s_handles[IDX_CFG_CCCD]) s_cfg_notify = enabled;
                 if (param->write.handle == s_handles[IDX_STATE_CCCD]) s_state_notify = enabled;
                 if (param->write.handle == s_handles[IDX_LOG_CCCD]) s_log_notify = enabled;
+                if (param->write.handle == s_handles[IDX_NOTES_CCCD]) s_notes_notify = enabled;
+                if (param->write.handle == s_handles[IDX_NOTE_SYNC_CCCD]) s_note_sync_notify = enabled;
             }
             break;
 
@@ -316,6 +399,8 @@ void rocky_ble_init(void) {
     pack_config();
     pack_state();
     s_log_len = focus_ble_get_log(s_log, sizeof(s_log));
+    pack_notes();
+    pack_note_sync();
 
     esp_err_t err = esp_hosted_bt_controller_init();
     if (err != ESP_OK) { s_public_state = ROCKY_BLE_DISABLED; ESP_LOGE(TAG, "controller init: %s", esp_err_to_name(err)); return; }
@@ -386,6 +471,24 @@ void rocky_ble_poll(void) {
         if (s_connected && s_log_notify)
             esp_ble_gatts_send_indicate(s_gatts_if, s_conn_id, s_handles[IDX_LOG_VAL],
                                         s_log_len, s_log, false);
+    }
+
+    pack_notes();
+    if (memcmp(s_notes, s_last_notes, NOTES_LEN) != 0) {
+        memcpy(s_last_notes, s_notes, NOTES_LEN);
+        esp_ble_gatts_set_attr_value(s_handles[IDX_NOTES_VAL], NOTES_LEN, s_notes);
+        if (s_connected && s_notes_notify)
+            esp_ble_gatts_send_indicate(s_gatts_if, s_conn_id, s_handles[IDX_NOTES_VAL],
+                                        NOTES_LEN, s_notes, false);
+    }
+
+    pack_note_sync();
+    if (memcmp(s_note_sync, s_last_note_sync, NOTE_SYNC_LEN) != 0) {
+        memcpy(s_last_note_sync, s_note_sync, NOTE_SYNC_LEN);
+        esp_ble_gatts_set_attr_value(s_handles[IDX_NOTE_SYNC_VAL], NOTE_SYNC_LEN, s_note_sync);
+        if (s_connected && s_note_sync_notify)
+            esp_ble_gatts_send_indicate(s_gatts_if, s_conn_id, s_handles[IDX_NOTE_SYNC_VAL],
+                                        NOTE_SYNC_LEN, s_note_sync, false);
     }
 }
 
