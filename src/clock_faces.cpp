@@ -31,8 +31,9 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "orb/dial_img.h"              // DIAL_IMG  — Imperial Signal (blue)
-#include "orb/dial_avi.h"              // DIAL_AVI  — Aviator (cream), AVI_SUB_X/Y sub-dial centre
+#include "art_store.h"                 // dial bitmaps live in the art partition (assets/orb/dial_*.h are the source)
+#define AVI_SUB_X 233                  // Aviator sub-seconds dial centre (from dial_avi.h)
+#define AVI_SUB_Y 330
 #include "orb/hand_hour_img.h"         // HAND_HOUR_IMG_MAP + pivot
 #include "orb/hand_min_img.h"          // HAND_MIN_IMG_MAP + pivot
 #include "orb/hand_hour_shadow_img.h"  // pre-blurred silhouettes, same pivots offset by the light
@@ -87,6 +88,9 @@ static lv_timer_t* s_tick     = nullptr;
 static Face        s_aviator;
 static Face        s_imperial;
 static bool        s_noTime   = false;
+static const uint8_t* s_dialAvi = nullptr;   // 466x466 RGB565 in mapped flash, or NULL
+static const uint8_t* s_dialImp = nullptr;
+static bool        s_artWarned = false;
 
 // Aviator hand sprites (lv_image objects on the screen, above the canvas).
 static lv_obj_t* s_hourImg    = nullptr;
@@ -233,7 +237,8 @@ static void time_for_face(struct tm* ti) {
 // ── IMPERIAL face ─────────────────────────────────────────────────────────────
 static void draw_imperial(const struct tm* ti) {
     Face& f = s_imperial;
-    memcpy(f.buf, DIAL_IMG, sizeof(DIAL_IMG));
+    if (s_dialImp) memcpy(f.buf, s_dialImp, (size_t)DIAL_W * DIAL_H * 2);
+    else           memset(f.buf, 0x10, (size_t)DIAL_W * DIAL_H * 2);   // no art: dark plate, hands still tell the time
 
     lv_layer_t L;
     lv_canvas_init_layer(f.canvas, &L);
@@ -264,7 +269,8 @@ static void draw_imperial(const struct tm* ti) {
 // ── AVIATOR face ──────────────────────────────────────────────────────────────
 static void draw_aviator(const struct tm* ti) {
     Face& f = s_aviator;
-    memcpy(f.buf, DIAL_AVI, sizeof(DIAL_AVI));
+    if (s_dialAvi) memcpy(f.buf, s_dialAvi, (size_t)DIAL_W * DIAL_H * 2);
+    else           memset(f.buf, 0x10, (size_t)DIAL_W * DIAL_H * 2);
 
     lv_layer_t L;
     lv_canvas_init_layer(f.canvas, &L);
@@ -343,6 +349,12 @@ static bool ensure_buffers(void) {
     if (!s_aviator.buf || !s_imperial.buf) {
         ESP_LOGE(TAG, "PSRAM alloc for clock canvases failed");
         return false;
+    }
+    if (!s_dialAvi) { const ArtEntry* e = art_find("dial_avi"); if (e && e->w == DIAL_W && e->h == DIAL_H) s_dialAvi = art_data(e); }
+    if (!s_dialImp) { const ArtEntry* e = art_find("dial_img"); if (e && e->w == DIAL_W && e->h == DIAL_H) s_dialImp = art_data(e); }
+    if ((!s_dialAvi || !s_dialImp) && !s_artWarned) {
+        s_artWarned = true;
+        ESP_LOGE(TAG, "dial art missing from the art partition (avi=%d imp=%d) - drawing hands on a plain plate", (int)!!s_dialAvi, (int)!!s_dialImp);
     }
     static bool sprites_done = false;
     if (!sprites_done) {

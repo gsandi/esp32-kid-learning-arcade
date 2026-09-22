@@ -38,6 +38,17 @@ CONFIG_FREERTOS_HZ=1000
 # Reduce log noise in production; change to DEBUG when troubleshooting.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
+# PlatformIO pins GCC 15 for ESP32-P4 while IDF 6.0.1 still sends a few
+# language-specific options to both C and C++. Keep those diagnostics visible
+# without treating the toolchain/IDF mismatch as a fatal source error.
+CONFIG_COMPILER_DISABLE_DEFAULT_ERRORS=y
+CONFIG_COMPILER_DISABLE_GCC15_WARNINGS=y
+
+# The CrowPanel module has 16 MB flash; keep IDF's image header and build-time
+# capacity check aligned with the board definition and partition table.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
 # ── Stack sizes ───────────────────────────────────────────────────────────────
 # LVGL task needs a larger stack when drawing complex screens.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

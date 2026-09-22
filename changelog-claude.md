@@ -3922,7 +3922,31 @@ Build pass. Commit now.
 
 **Prompt:** push the code to branch and switch the hosyond main branch
 
-**Work done:** *(in progress)*
+**Work done:** (completed 2026-09-22 00:51:35)
+
+Done. Device flashed, boots clean, look at the panel.
+
+**Rollback point (done first)**
+- `feat/esp32-p4` tagged `p4-arcade-v1.0`, pushed.
+- GitHub prerelease with full flash set + SHA256 + esptool offset line: https://github.com/gsandi/esp32-kid-learning-arcade/releases/tag/p4-arcade-v1.0
+- Stale P4 files that sat untracked on `main` moved to scratchpad. `main` clean.
+
+**Clock port (branch `feat/orb-clock`, commit 6fc5d1c, pushed)**
+- Two Orb faces stacked on black screen, native 466×466 each: **Aviator** top (cream dial, sprite hands + drop shadows, curved date, red sub-seconds), **Imperial** bottom (blue dial, drawn dauphine hands, centre seconds, date window).
+- Clock = home. Boot → clock. Tap anywhere → launcher (Arcade + Settings, untouched). 2 min idle → clock. Arcade one tap behind, nothing removed.
+- New `src/clock_faces.cpp` + art in `src/orb/` (MIT, licence kept). LVGL 8→9 mapping done: layer draw API, polygon → 2 triangles, sprites split to planar RGB565A8.
+- Chose Aviator + Imperial over Custom: Custom ships no plate art in public repo.
+
+**Verified**
+- `pio run` passes. Flashed via `/dev/cu.wchusbserial210` (port changed from `...10`).
+- 50 s boot log: sprites converted, no LVGL errors, no panic, WiFi up. SD mount error = no card, pre-existing.
+- **Not seen on panel.** Your eyes needed for: hand rendering over canvas (Orb's LVGL 8 landmine), second-hand smoothness, tap-through.
+
+**Watch out**
+- Flash at **92%** of 4 MB OTA slot. Two dials = 870 KB. Third face needs data partition.
+- "Side by side" interpreted as stacked (600 px wide). Two small left/right = two constants change.
+
+**Docs**: changelog entry, CLAUDE.md P4 section (single-file rule retired), vault port-notes status, Sandi memory recorded.
 
 ## 2026-09-05 — 7-inch setup guide + missing component dependency
 
@@ -3987,3 +4011,102 @@ firmware release is checked into the github so that later we can pull it down ag
   check on hardware: lv_image-over-canvas compositing on LVGL 9 (Orb's 8.4 landmine),
   per-second redraw cost of two 434 KB memcpy + draws, touch-through on the clock screen.
 
+
+---
+
+## 2026-09-22 00:54:30
+
+**Prompt:** look into the esp_32_pomodoro timer code and extract the rock =y behavior, pomodoro timer, stopwatch etc.. things please. this does not ahve accelerometer so dont lift and sift that.. also i want codex or agy to generate the icons for each rather than this huge badges 0 come on timef or some deisgn flares
+
+**Work done:** (completed by Codex 2026-09-22)
+
+- Ported Rocky's hardware-independent behavior into `src/rocky.cpp`: neutral face,
+  random blink, tap reaction, proud completion animation/chime, and the two-minute
+  queued-proud rule. IMU-only dizzy/asleep and lift/tilt controls were deliberately
+  left out because the P4 panel has no accelerometer.
+- Added `src/focus_apps.cpp`: Rocky Focus with 10/25/45-minute presets, persistent
+  countdown while navigating away, pause/resume/end, five-minute break, progress,
+  completion sound and Rocky reaction. Added a separate stopwatch with persistent
+  elapsed time, pause/resume, three rolling lap readings and reset.
+- Rebuilt the launcher as a 2x2 app grid: Arcade, Rocky Focus, Stopwatch, Settings.
+  Four original 160x160 transparent clay-style icons were generated with Codex image
+  generation and stored in `assets/icons/`; no oversized text badges or icon font.
+- Added a 3 MB memory-mapped `art` partition and `tools/bake_art.py`. The two Orb dial
+  plates and four icons now live outside the OTA app image. Firmware usage fell from
+  91.9% to 71.6% of the 4 MB slot; `build/art.bin` is 1,176,048 bytes.
+- Fixed `flash.sh` to bake/flash art with PlatformIO's packaged esptool. Its normal
+  upload hook already refreshes the C6 image, so the redundant second C6 write was
+  removed. Corrected IDF flash size metadata from 2 MB to the board's real 16 MB.
+- Verified `pio run`, flashed P4 + C6 + art to `/dev/cu.wchusbserial210`, and captured
+  a clean boot. The log mapped all six art entries, converted clock hand sprites,
+  connected Wi-Fi, and showed no panic or LVGL error. SD timeout remains expected
+  when no card is inserted. Physical touch/layout inspection is still required.
+
+---
+
+## 2026-09-22 00:56:04
+
+**Prompt:** <task-notification>
+<task-id>be2766mqs</task-id>
+<tool-use-id>toolu_017WxDNBtnNktVtXdcCPRVoq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-sandi-workspace-startup-kid-arcade/e4310c21-ba46-47f8-abb2-1ee23c83ea8f/tasks/be2766mqs.output</output-file>
+<status>completed</status>
+<summary>Background command "Probe whether agy can generate a PNG icon" completed (exit code 0)</summary>
+</task-notification>
+
+**Work done:** *(in progress)*
+
+---
+
+## 2026-09-22 00:56:06
+
+**Prompt:** also i do need the mobile sync up hting we did so .. lets create anotehr app whcih can do it or u think this can be part of the rocky family?? discuss on that
+
+**Work done:** Decision: phone sync belongs to the Rocky family as a shared background
+service/settings surface, not as a launcher app. A sync app has no child-facing task;
+it supports Focus history/configuration (and later OTA) across the product. The C6
+reports BLE-over-SDIO capability, but the P4 host currently logs Bluetooth disabled,
+so BLE GATT plus the companion-side work is a separate next phase rather than a fake
+or half-connected tile in this firmware change.
+
+---
+
+## 2026-09-22 01:00:10
+
+**Prompt:** <task-notification>
+<task-id>bg1bk5koy</task-id>
+<tool-use-id>toolu_01H76duwimcdeurWRfujHghP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-sandi-workspace-startup-kid-arcade/e4310c21-ba46-47f8-abb2-1ee23c83ea8f/tasks/bg1bk5koy.output</output-file>
+<status>completed</status>
+<summary>Background command "Retry the agy image-generation probe with the prompt attached to the flag" completed (exit code 0)</summary>
+</task-notification>
+
+**Work done:** *(in progress)*
+
+---
+
+## 2026-09-22 01:01:10
+
+**Prompt:** <task-notification>
+<task-id>bpi1jqcyt</task-id>
+<tool-use-id>toolu_01Q9rZnJk5SAwfJDJTKEk2Mb</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-sandi-workspace-startup-kid-arcade/e4310c21-ba46-47f8-abb2-1ee23c83ea8f/tasks/bpi1jqcyt.output</output-file>
+<status>completed</status>
+<summary>Background command "Check PIL, lv_font_conv, existing custom fonts and Montserrat TTF availability" completed (exit code 0)</summary>
+</task-notification>
+
+**Work done:** *(in progress)*
+
+---
+
+## 2026-09-22 01:04:39
+
+**Prompt:** <task-notification>
+<task-id>baupp2uky</task-id>
+<tool-use-id>toolu_01VKtR5DiY6yyEeTRDneJUx6</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-sandi-workspace-startup-kid-arcade/e4310c21-ba46-47f8-abb2-1ee23c83ea8f/tasks/baupp2uky.output</output-file>
+<status>completed</status>
+<summary>Background command "Ask agy to generate the four launcher icons" completed (exit code 0)</summary>
+</task-notification>
+
+**Work done:** *(in progress)*

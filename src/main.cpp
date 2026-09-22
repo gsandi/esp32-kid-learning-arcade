@@ -37,7 +37,10 @@
 #include "esp_partition.h"
 #include "esp_hosted.h"
 #include "esp_hosted_ota.h"
+#include "app_audio.h"
+#include "art_store.h"
 #include "clock_faces.h"
+#include "focus_apps.h"
 
 #define TAG "kid_arcade"
 
@@ -732,12 +735,10 @@ static void volume_load(void) {
     g_volume = v;
 }
 
-struct Note { uint32_t freq; uint32_t ms; };
 static const Note SND_CORRECT[]  = {{660, 110}, {880, 180}, {0, 0}};
 static const Note SND_WRONG[]    = {{196, 340}, {0, 0}};
 static const Note SND_COMPLETE[] = {{523, 90}, {659, 90}, {784, 90}, {1047, 340}, {0, 0}};
 static const Note SND_BEEP[]     = {{880, 80}, {0, 0}};
-static void audio_play(const Note* seq);
 
 static void on_volume_slider(lv_event_t* e) {
     lv_obj_t* sld  = (lv_obj_t*)lv_event_get_target(e);
@@ -1086,10 +1087,16 @@ static void add_home_button(lv_obj_t* scr) {
 
 // ── SCREEN: HOME ─────────────────────────────────────────────────────────────
 static void on_launch_arcade(lv_event_t* e) { launch_arcade(); }
+static void on_launch_focus(lv_event_t* e) { focus_show_pomodoro(on_back_to_launcher); }
+static void on_launch_stopwatch(lv_event_t* e) { focus_show_stopwatch(on_back_to_launcher); }
 static void on_launch_settings(lv_event_t* e) { launch_settings(); }
 
+static lv_image_dsc_t g_icon_arcade = {};
+static lv_image_dsc_t g_icon_rocky = {};
+static lv_image_dsc_t g_icon_stopwatch = {};
+static lv_image_dsc_t g_icon_settings = {};
 
-static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
+static lv_obj_t* make_app_tile(lv_obj_t* parent, const lv_image_dsc_t* icon,
                                 const char* name, uint32_t bg, uint32_t bg_dk,
                                 int x, int y, int w, int h,
                                 lv_event_cb_t cb) {
@@ -1111,10 +1118,14 @@ static lv_obj_t* make_app_tile(lv_obj_t* parent, const char* icon,
     lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(t, cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t* il = make_label(t, icon, &lv_font_montserrat_32, C_CARD_TXT);
-    lv_obj_align(il, LV_ALIGN_CENTER, 0, -16);
+    if (icon && icon->data) {
+        lv_obj_t* il = lv_image_create(t);
+        lv_image_set_src(il, icon);
+        lv_obj_align(il, LV_ALIGN_CENTER, 0, -25);
+        lv_obj_remove_flag(il, LV_OBJ_FLAG_CLICKABLE);
+    }
     lv_obj_t* nl = make_label(t, name, &lv_font_montserrat_24, C_CARD_TXT);
-    lv_obj_align(nl, LV_ALIGN_CENTER, 0, 30);
+    lv_obj_align(nl, LV_ALIGN_BOTTOM_MID, 0, -18);
     return t;
 }
 
@@ -1294,17 +1305,36 @@ static void show_home(void) {
     lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_MID, 0, 182);
     apply_wallpaper_stroke(g_home_weather_lbl);
 
-    // ── Bottom app row: 2 tiles pinned to bottom ──────────────────────────
-    const int TILE_W = 262, TILE_H = 210, TILE_GAP = 20;
-    const int ROW_Y  = SCR_H - TILE_H - 60;
-    const int ROW_X  = (SCR_W - (TILE_W * 2 + TILE_GAP)) / 2;
+    // ── App grid: generated artwork, compact labels ───────────────────────
+    // Four real apps now share the launcher. The art lives in the mapped data
+    // partition so adding it does not squeeze the 4 MB OTA app slot.
+    const int TILE_W = 250, TILE_H = 250, TILE_GAP = 20;
+    const int GRID_X = (SCR_W - (TILE_W * 2 + TILE_GAP)) / 2;
+    const int ROW_1 = 410, ROW_2 = ROW_1 + TILE_H + TILE_GAP;
 
-    make_app_tile(scr, "Arcade", "Math + Reading",
-                  C_MATH, C_MATH_DK,
-                  ROW_X, ROW_Y, TILE_W, TILE_H, on_launch_arcade);
-    make_app_tile(scr, "Settings", "WiFi + Stars",
-                  C_BTN_ALT, 0x4A339A,
-                  ROW_X + TILE_W + TILE_GAP, ROW_Y, TILE_W, TILE_H, on_launch_settings);
+    make_app_tile(scr, &g_icon_arcade, "Arcade", C_MATH, C_MATH_DK,
+                  GRID_X, ROW_1, TILE_W, TILE_H, on_launch_arcade);
+    lv_obj_t* focus_tile = make_app_tile(scr, &g_icon_rocky, "Rocky Focus", 0x5D3A8C, 0x3B225F,
+                  GRID_X + TILE_W + TILE_GAP, ROW_1, TILE_W, TILE_H, on_launch_focus);
+    lv_obj_t* sw_tile = make_app_tile(scr, &g_icon_stopwatch, "Stopwatch", 0x168F93, 0x0C5C68,
+                  GRID_X, ROW_2, TILE_W, TILE_H, on_launch_stopwatch);
+    make_app_tile(scr, &g_icon_settings, "Settings", C_BTN_ALT, 0x4A339A,
+                  GRID_X + TILE_W + TILE_GAP, ROW_2, TILE_W, TILE_H, on_launch_settings);
+
+    auto add_live_dot = [](lv_obj_t* tile) {
+        lv_obj_t* dot = lv_obj_create(tile);
+        lv_obj_set_size(dot, 16, 16);
+        lv_obj_align(dot, LV_ALIGN_TOP_RIGHT, -16, 16);
+        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(dot, lv_color_hex(C_CORRECT), 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dot, 0, 0);
+        lv_obj_set_style_pad_all(dot, 0, 0);
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+    };
+    if (focus_pomodoro_running()) add_live_dot(focus_tile);
+    if (focus_stopwatch_running()) add_live_dot(sw_tile);
 
     g_home_timer = lv_timer_create(home_clock_cb, 1000, NULL);
     idle_reset();
@@ -2491,7 +2521,7 @@ static void melody_task(void* arg) {
     vTaskDelete(NULL);
 }
 
-static void audio_play(const Note* seq) {
+void audio_play(const Note* seq) {
     if (!g_i2s_tx) return;
     int n = 0;
     while (seq[n].freq) n++;
@@ -2743,6 +2773,12 @@ extern "C" void app_main(void) {
 
     audio_init();
     preload_bg_image();
+    art_init();
+    art_image("icon_arcade", &g_icon_arcade);
+    art_image("icon_rocky", &g_icon_rocky);
+    art_image("icon_stopwatch", &g_icon_stopwatch);
+    art_image("icon_settings", &g_icon_settings);
+    focus_apps_init();
     slave_ota_check_and_run();
     wifi_init();
     sd_init();
