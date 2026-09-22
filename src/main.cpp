@@ -1211,6 +1211,17 @@ static void show_clock(lv_timer_t*) {
     if (g_idle_timer) { lv_timer_delete(g_idle_timer); g_idle_timer = NULL; }
     if (g_home_timer) { lv_timer_delete(g_home_timer); g_home_timer = NULL; }
 
+    // A running timer owns the display. The idle timer may have been armed on
+    // the launcher before Focus/Stopwatch started, so gate the transition here
+    // at the final point of entry rather than relying on touch activity to keep
+    // postponing it. Paused focus sessions are intentionally included.
+    if (focus_pomodoro_running() || focus_stopwatch_running()) {
+        g_idle_timer = lv_timer_create(show_clock, IDLE_TIMEOUT_MS, NULL);
+        lv_timer_set_repeat_count(g_idle_timer, 1);
+        ESP_LOGI(TAG, "screensaver deferred while timer is active");
+        return;
+    }
+
     lvgl_port_lock(0);
     lv_obj_t* scr = clock_faces_build();
     if (!scr) {
