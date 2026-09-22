@@ -3943,3 +3943,47 @@ Build pass. Commit now.
   tells readers to edit it or pass a port to `flash.sh`.
 - **Not yet verified by a clean-clone build.** The dependency fix is derived from
   the CMake REQUIRES list, not from a successful build on a fresh checkout.
+
+---
+
+## 2026-09-22 — Orb clock faces as the idle/home screen (branch `feat/orb-clock`)
+
+**Prompt:** "stash the current arcade game or everything behind a layer and i want the
+clocks as the idle screens ... port at least 2 clocks side by side ... make sure that
+firmware release is checked into the github so that later we can pull it down again"
+
+- **Rollback point first.** `feat/esp32-p4` at a8bf325 tagged `p4-arcade-v1.0`, pushed,
+  and published as a GitHub prerelease with `firmware.bin`, `bootloader.bin`,
+  `partitions.bin`, `ota_data_initial.bin`, the C6 `network_adapter.bin`, SHA256SUMS and
+  the full esptool `write_flash` offset line (0x2000 / 0x8000 / 0x10000 / 0x14E000 /
+  0x150000). https://github.com/gsandi/esp32-kid-learning-arcade/releases/tag/p4-arcade-v1.0
+- Stale P4 files that had been sitting untracked in the `main` checkout
+  (`managed_components/`, `sdkconfig*`, `src/CMakeLists.txt`, `src/bg_image.cpp`, ...)
+  were identical to or older than the branch copies; moved to the session scratchpad so
+  `main` is clean.
+- **New `src/clock_faces.{h,cpp}`** (first file split of the P4 firmware — the
+  "single-file main.cpp" rule is retired for this branch, see CLAUDE.md). Two Orb OS
+  faces on one black screen, each on its own native 466x466 RGB565 PSRAM canvas:
+  **Aviator** at y=30 (cream dial, ornate sprite hour/minute hands with pre-blurred
+  drop shadows toward 7 o'clock, curved "Mon 27th" banner, red sub-dial seconds) and
+  **Imperial** at y=528 (blue dial, drawn dauphine hands with outline, centre seconds,
+  date window). 1 Hz redraw. Before NTP: hands at 12:00 with seconds running, no date.
+- LVGL 8.4 → 9 mapping done here: `lv_canvas_draw_*` → layer API
+  (`lv_canvas_init_layer` / `lv_draw_triangle|line|rect|label` / `finish_layer`);
+  4-point polygon hand → two triangles; `lv_img_set_angle/pivot` →
+  `lv_image_set_rotation/pivot`; Orb's interleaved TRUE_COLOR_ALPHA hand sprites split
+  at first build into planar RGB565A8 (colour plane then A8 plane) in PSRAM.
+- Art copied verbatim from Ziplock78/orb-os (MIT) into `src/orb/` with the LVGL 8
+  `lv_img_dsc_t` initialisers stripped; licence at `src/orb/LICENSE.orb-os`.
+- `main.cpp`: old white-text screensaver replaced by `show_clock()`. Boot goes to the
+  clock; a tap anywhere → `show_home()` (launcher with Arcade + Settings tiles, unchanged);
+  idle timeout (2 min) from any screen → clock. Nothing about the games changed.
+- Enabled `CONFIG_LV_FONT_MONTSERRAT_18` (Aviator banner font) in `sdkconfig.defaults`
+  and `sdkconfig.esp32p4`.
+- **Build:** `pio run` passes. Flash **3,854,360 / 4,194,304 bytes (91.9%)** of the OTA
+  slot; the two dial bitmaps are ~870 KB of that. Next face or bigger asset needs the
+  dials moved to a data partition (Orb's `themeart` mmap pattern).
+- **Not device-verified in this session** — no serial port was present. Open items to
+  check on hardware: lv_image-over-canvas compositing on LVGL 9 (Orb's 8.4 landmine),
+  per-second redraw cost of two 434 KB memcpy + draws, touch-through on the clock screen.
+

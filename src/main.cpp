@@ -37,6 +37,7 @@
 #include "esp_partition.h"
 #include "esp_hosted.h"
 #include "esp_hosted_ota.h"
+#include "clock_faces.h"
 
 #define TAG "kid_arcade"
 
@@ -434,9 +435,7 @@ static lv_obj_t*   g_home_greet_lbl    = NULL;
 static lv_obj_t*   g_home_weather_lbl  = NULL;
 static lv_timer_t* g_home_timer        = NULL;
 static lv_timer_t* g_idle_timer        = NULL;
-static lv_obj_t*   g_screensaver_scr   = NULL;
-static lv_obj_t*   g_ss_time_lbl       = NULL;
-static lv_timer_t* g_ss_clock_timer    = NULL;
+static lv_obj_t*   g_screensaver_scr   = NULL;   // the clock screen while it is showing
 #define IDLE_TIMEOUT_MS  (2 * 60 * 1000)   // 2 minutes
 // WiFi screen widget refs (scan flow)
 static lv_obj_t*   g_wifi_kb           = NULL;
@@ -903,6 +902,7 @@ static void prepare_question(void) {
 // ── Forward declarations ──────────────────────────────────────────────────────
 
 static void show_home(void);
+static void show_clock(void);
 static void launch_arcade(void);
 static void launch_settings(void);
 static void launch_wifi(void);
@@ -1184,63 +1184,43 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
 }
 
 
-// ── Screensaver (idle: black + white clock) ───────────────────────────────────
-static void screensaver_clock_cb(lv_timer_t*) {
-    if (!g_ss_time_lbl) return;
-    time_t now = time(NULL);
-    if (now < 1704067200L) return;
-    struct tm ti;
-    localtime_r(&now, &ti);
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%02d:%02d", ti.tm_hour, ti.tm_min);
-    lv_label_set_text(g_ss_time_lbl, buf);
-}
-
-static void screensaver_dismiss(lv_event_t*) {
-    if (g_ss_clock_timer) { lv_timer_delete(g_ss_clock_timer); g_ss_clock_timer = NULL; }
-    g_ss_time_lbl = NULL;
+// ── Idle / home: the Orb clock faces ─────────────────────────────────────────
+// Two analog faces (Aviator + Imperial, ported from Orb OS) stacked on a black screen.
+// This is what the device shows at boot and after IDLE_TIMEOUT_MS on any other screen.
+// A tap anywhere brings up the launcher (arcade + settings); the arcade itself is one
+// tap behind the clock, nothing was removed.
+static void clock_dismiss(lv_event_t*) {
     g_screensaver_scr = NULL;
     show_home();
 }
 
-static void show_screensaver(lv_timer_t*) {
+static void show_clock(lv_timer_t*) {
     if (g_idle_timer) { lv_timer_delete(g_idle_timer); g_idle_timer = NULL; }
+    if (g_home_timer) { lv_timer_delete(g_home_timer); g_home_timer = NULL; }
 
     lvgl_port_lock(0);
-    lv_obj_t* scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x010108), 0);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(scr, 0, 0);
-    lv_obj_set_style_pad_all(scr, 0, 0);
-    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, screensaver_dismiss, LV_EVENT_CLICKED, NULL);
-
-    g_ss_time_lbl = lv_label_create(scr);
-    time_t now = time(NULL);
-    char buf[8] = "--:--";
-    if (now > 1704067200L) {
-        struct tm ti;
-        localtime_r(&now, &ti);
-        snprintf(buf, sizeof(buf), "%02d:%02d", ti.tm_hour, ti.tm_min);
+    lv_obj_t* scr = clock_faces_build();
+    if (!scr) {
+        // PSRAM allocation failed — fall back to the launcher rather than a black panel.
+        lvgl_port_unlock();
+        ESP_LOGE(TAG, "clock faces unavailable, showing launcher");
+        show_home();
+        return;
     }
-    lv_label_set_text(g_ss_time_lbl, buf);
-    lv_obj_set_style_text_font(g_ss_time_lbl, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(g_ss_time_lbl, lv_color_hex(0xF0EFFF), 0);
-    lv_obj_center(g_ss_time_lbl);
-
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, clock_dismiss, LV_EVENT_CLICKED, NULL);
     g_screensaver_scr = scr;
-    g_ss_clock_timer = lv_timer_create(screensaver_clock_cb, 15000, NULL);
-
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 600, 0, false);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 600, 0, true);
     lvgl_port_unlock();
 }
+
+static void show_clock(void) { show_clock((lv_timer_t*)NULL); }
 
 static void idle_reset(void) {
     if (g_idle_timer) {
         lv_timer_reset(g_idle_timer);
     } else if (!g_screensaver_scr) {
-        g_idle_timer = lv_timer_create(show_screensaver, IDLE_TIMEOUT_MS, NULL);
+        g_idle_timer = lv_timer_create(show_clock, IDLE_TIMEOUT_MS, NULL);
         lv_timer_set_repeat_count(g_idle_timer, 1);
     }
 }
@@ -2768,5 +2748,5 @@ extern "C" void app_main(void) {
     sd_init();
     sd_load_questions();
 
-    show_home();
+    show_clock();
 }

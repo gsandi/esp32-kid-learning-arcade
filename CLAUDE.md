@@ -18,7 +18,15 @@ Offline touchscreen learning toy for a 6-year-old. Two games — **Math** (count
 - **TFT_eSPI** — display driver (ST7796S) and touch (XPT2046 via `TOUCH_CS`)
 - **Preferences** (NVS) — persistent star count + settings (`learning` namespace)
 - **ArduinoJson** + SD card — optional question bank loading (v2; gitignored until tested)
-- Single-file firmware: `src/main.cpp`. No LVGL. Don't add abstraction layers unless splitting is unavoidable.
+- Single-file firmware: `src/main.cpp`. No LVGL. Don't add abstraction layers unless splitting is unavoidable. **(Hosyond / `main` only.)**
+
+## ESP32-P4 branch (`feat/esp32-p4`, `feat/orb-clock`)
+
+CrowPanel 7" ESP32-P4, ESP-IDF + LVGL 9, 600×1024 portrait. The device is growing past an arcade: the **idle/home screen is two Orb OS clock faces** (`src/clock_faces.cpp`, art in `src/orb/`, MIT — see `src/orb/LICENSE.orb-os`); the arcade launcher is one tap behind it. The single-file rule above is **retired on this branch**: split by screen/module when a unit is self-contained (clock faces were the first). Keep `main.cpp` as the wiring.
+
+Flash budget: app partition is 4 MB and the clock dials put the build at ~92%. Big new assets go to a data partition, not `.rodata`.
+
+Rollback point: tag `p4-arcade-v1.0` + GitHub prerelease with the full flash set.
 
 ## Git workflow
 
