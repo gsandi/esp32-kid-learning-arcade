@@ -142,7 +142,9 @@ lv_obj_t* rocky_create(lv_obj_t* parent, int cx, int cy, float scale) {
         lv_obj_remove_event_cb(s_face, on_face_delete);
     }
     s_k = scale;
-    const int w = S(320), h = S(300);
+    // Eye geometry reaches 162 px above centre. The old 300 px container
+    // clipped the eye tops; 360 px gives the full expression room to render.
+    const int w = S(320), h = S(360);
 
     s_face = lv_obj_create(parent);
     lv_obj_set_size(s_face, w, h);

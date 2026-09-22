@@ -49,7 +49,6 @@ static uint32_t  s_laps[3] = {};
 static uint8_t   s_lap_count = 0;
 
 static lv_timer_t* s_service = nullptr;
-static lv_image_dsc_t s_bg_rocky = {};
 static lv_image_dsc_t s_bg_stopwatch = {};
 
 // Pomodoro screen refs. They are nulled by the screen DELETE event.
@@ -217,7 +216,6 @@ static void service_cb(lv_timer_t*) {
 }
 
 void focus_apps_init(void) {
-    art_image("bg_rocky", &s_bg_rocky);
     art_image("bg_stopwatch", &s_bg_stopwatch);
     if (!s_service) s_service = lv_timer_create(service_cb, 250, nullptr);
 }
@@ -268,33 +266,26 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lvgl_port_lock(0);
     lv_obj_t* scr = lv_obj_create(nullptr);
     style_screen(scr);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
     s_pomo_scr = scr;
     lv_obj_add_event_cb(scr, pomo_screen_deleted, LV_EVENT_DELETE, nullptr);
-    add_header(scr, "ROCKY FOCUS", home_cb);
+    add_header(scr, "FOCUS", home_cb);
 
-    if (s_bg_rocky.data) {
-        lv_obj_t* backdrop = lv_image_create(scr);
-        lv_image_set_src(backdrop, &s_bg_rocky);
-        lv_obj_set_pos(backdrop, 20, 104);
-        lv_obj_set_style_radius(backdrop, 28, 0);
-        lv_obj_set_style_clip_corner(backdrop, true, 0);
-        lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
-    }
-
-    lv_obj_t* face = rocky_create(scr, 300, 318, 0.72f);
+    // Deliberately quiet: gaze, countdown, progress, controls. Nothing else.
+    lv_obj_t* face = rocky_create(scr, 300, 305, 0.90f);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
 
     s_pomo_status = label(scr, "", &lv_font_montserrat_24, ORANGE);
-    lv_obj_align(s_pomo_status, LV_ALIGN_TOP_MID, 0, 455);
+    lv_obj_align(s_pomo_status, LV_ALIGN_TOP_MID, 0, 440);
     s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_48, TEXT);
-    lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_MID, 0, 500);
+    lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_MID, 0, 490);
     s_pomo_hint = label(scr, "", &lv_font_montserrat_20, MUTED);
-    lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_MID, 0, 600);
+    lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_MID, 0, 575);
 
     s_pomo_progress = lv_bar_create(scr);
     lv_obj_set_size(s_pomo_progress, 500, 12);
-    lv_obj_align(s_pomo_progress, LV_ALIGN_TOP_MID, 0, 650);
+    lv_obj_align(s_pomo_progress, LV_ALIGN_TOP_MID, 0, 625);
     lv_obj_set_style_bg_color(s_pomo_progress, lv_color_hex(PANEL), LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_pomo_progress, lv_color_hex(ORANGE), LV_PART_INDICATOR);
     lv_obj_set_style_radius(s_pomo_progress, 6, LV_PART_MAIN);
@@ -393,8 +384,9 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
     }
     lv_obj_set_size(ring, 480, 480);
     lv_obj_align(ring, LV_ALIGN_TOP_MID, 0, 145);
-    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_clip_corner(ring, true, 0);
+    // Large clip-corner layers exhaust LVGL's 64 KB draw heap. The generated
+    // instrument already draws its own circular bezel, so it needs no mask.
+    if (!s_bg_stopwatch.data) lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 

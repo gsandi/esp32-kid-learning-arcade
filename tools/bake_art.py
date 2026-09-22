@@ -62,7 +62,6 @@ assert (sw, sh) == (466, 466), f'steampunk dial is {sw}x{sh}, expected 466x466'
 entries.append(('dial_steam', sw, sh, 0, steam))
 
 for name, rel in (
-    ('bg_rocky', 'assets/apps/rocky-workshop.png'),
     ('bg_stopwatch', 'assets/apps/stopwatch-instrument.png'),
 ):
     w, h, blob = png_rgb565(os.path.join(ROOT, rel))

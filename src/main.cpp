@@ -5,6 +5,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -2494,10 +2495,16 @@ static void sd_load_questions(void) {
 #define AUDIO_I2S_DOUT     GPIO_NUM_23
 
 static i2s_chan_handle_t g_i2s_tx = NULL;
+static SemaphoreHandle_t g_audio_mutex = NULL;
 
 static void melody_task(void* arg) {
     Note* notes = (Note*)arg;
     ESP_LOGI(TAG, "melody_task start freq=%lu", (unsigned long)notes[0].freq);
+    if (g_audio_mutex) xSemaphoreTake(g_audio_mutex, portMAX_DELAY);
+    // GPIO30 drives an inverting transistor on this board: LOW enables the
+    // speaker amplifier, HIGH shuts it down.
+    gpio_set_level(AUDIO_PA_EN, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
     for (int i = 0; notes[i].freq || notes[i].ms; i++) {
         int n = (AUDIO_SAMPLE_RATE * (int)notes[i].ms) / 1000;
         // Match Elecrow's board firmware: 32-bit MSB mono on I2S1. A zero
@@ -2519,6 +2526,8 @@ static void melody_task(void* arg) {
         if (err != ESP_OK) ESP_LOGE(TAG, "audio write failed: %s", esp_err_to_name(err));
         free(buf);
     }
+    gpio_set_level(AUDIO_PA_EN, 1);
+    if (g_audio_mutex) xSemaphoreGive(g_audio_mutex);
     free(arg);
     vTaskDelete(NULL);
 }
@@ -2538,8 +2547,8 @@ static void audio_init(void) {
     pa.pin_bit_mask   = 1ULL << AUDIO_PA_EN;
     pa.mode           = GPIO_MODE_OUTPUT;
     gpio_config(&pa);
-    gpio_set_level(AUDIO_PA_EN, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));  // amp settling time
+    gpio_set_level(AUDIO_PA_EN, 1);  // active-low amplifier: start silent
+    g_audio_mutex = xSemaphoreCreateMutex();
 
     i2s_chan_config_t ch_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
     esp_err_t ret = i2s_new_channel(&ch_cfg, &g_i2s_tx, NULL);
@@ -2774,6 +2783,7 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Display up — launching game");
 
     audio_init();
+    audio_play(SND_COMPLETE);  // short power-on check that the speaker path is alive
     preload_bg_image();
     art_init();
     art_image("icon_arcade", &g_icon_arcade);
