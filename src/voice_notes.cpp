@@ -26,6 +26,8 @@ constexpr uint32_t SAMPLE_RATE = 16000;
 constexpr uint32_t MAX_RECORD_SECONDS = 5 * 60;
 constexpr char NOTES_DIR[] = "/sdcard/notes";
 constexpr char PHONE_LEDGER[] = "vnphone";
+constexpr char PHONE_META[] = "vnmeta";
+constexpr char PHONE_DEST_KEY[] = "dest";
 constexpr char BOUNDARY[] = "----rockyArcadeVoiceNote";
 constexpr size_t MAX_SYNC_FILES = 64;
 
@@ -267,25 +269,78 @@ bool upload_file(const char* host, const char* token, const char* filename) {
     esp_http_client_set_header(client, "Content-Type", content_type);
     if (token && strlen(token) == 32) esp_http_client_set_header(client, "X-Rocky-Token", token);
 
-    bool ok = esp_http_client_open(client, head_len + file_size + tail_len) == ESP_OK;
-    if (ok) ok = esp_http_client_write(client, head, head_len) == head_len;
+    esp_err_t open_err = esp_http_client_open(client, head_len + file_size + tail_len);
+    bool ok = open_err == ESP_OK;
+    if (!ok) {
+        ESP_LOGW(TAG, "upload %s could not connect to %s: %s", filename, url,
+                 esp_err_to_name(open_err));
+    }
+    if (ok) {
+        int written = esp_http_client_write(client, head, head_len);
+        ok = written == head_len;
+        if (!ok) ESP_LOGW(TAG, "upload %s header write stopped at %d/%d", filename,
+                          written, head_len);
+    }
     uint8_t buffer[2048];
     while (ok) {
         size_t count = fread(buffer, 1, sizeof(buffer), file);
         if (count == 0) break;
-        ok = esp_http_client_write(client, (const char*)buffer, count) == (int)count;
+        int written = esp_http_client_write(client, (const char*)buffer, count);
+        ok = written == (int)count;
+        if (!ok) ESP_LOGW(TAG, "upload %s body write stopped at %d/%u", filename,
+                          written, (unsigned)count);
     }
-    if (ok) ok = esp_http_client_write(client, tail, tail_len) == tail_len;
     if (ok) {
-        esp_http_client_fetch_headers(client);
-        int status = esp_http_client_get_status_code(client);
-        ok = status >= 200 && status < 300;
-        if (!ok) ESP_LOGW(TAG, "upload %s returned HTTP %d", filename, status);
+        int written = esp_http_client_write(client, tail, tail_len);
+        ok = written == tail_len;
+        if (!ok) ESP_LOGW(TAG, "upload %s trailer write stopped at %d/%d", filename,
+                          written, tail_len);
+    }
+    if (ok) {
+        int64_t response_len = esp_http_client_fetch_headers(client);
+        if (response_len < 0) {
+            ESP_LOGW(TAG, "upload %s received no HTTP response", filename);
+            ok = false;
+        } else {
+            int status = esp_http_client_get_status_code(client);
+            ok = status >= 200 && status < 300;
+            if (!ok) ESP_LOGW(TAG, "upload %s returned HTTP %d", filename, status);
+        }
     }
     fclose(file);
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     return ok;
+}
+
+// Phone delivery is destination-specific. The S3 implementation already does
+// this; without it the P4's single permanent ledger says "already sent" after
+// a phone changes address (or a different phone connects) and a pull processes
+// zero files even though that phone has none of them.
+void prepare_phone_ledger(const char* host) {
+    nvs_handle_t meta = 0;
+    if (nvs_open(PHONE_META, NVS_READWRITE, &meta) != ESP_OK) {
+        ESP_LOGW(TAG, "could not open phone destination metadata");
+        return;
+    }
+
+    char previous[sizeof(s_sync_host)] = {};
+    size_t previous_len = sizeof(previous);
+    bool same = nvs_get_str(meta, PHONE_DEST_KEY, previous, &previous_len) == ESP_OK &&
+                strcmp(previous, host) == 0;
+    if (!same) {
+        nvs_handle_t ledger = 0;
+        if (nvs_open(PHONE_LEDGER, NVS_READWRITE, &ledger) == ESP_OK) {
+            nvs_erase_all(ledger);
+            nvs_commit(ledger);
+            nvs_close(ledger);
+        }
+        nvs_set_str(meta, PHONE_DEST_KEY, host);
+        nvs_commit(meta);
+        ESP_LOGI(TAG, "phone destination changed %s%s -> %s; delivery ledger reset",
+                 previous[0] ? "from " : "", previous[0] ? previous : "(unset)", host);
+    }
+    nvs_close(meta);
 }
 
 void sync_task(void*) {
@@ -328,6 +383,7 @@ void sync_task(void*) {
         }
     }
 
+    prepare_phone_ledger(host);
     nvs_handle_t ledger = 0;
     if (nvs_open(PHONE_LEDGER, NVS_READWRITE, &ledger) == ESP_OK) {
         for (size_t i = 0; i < count; ++i) {
@@ -355,6 +411,8 @@ void sync_task(void*) {
             }
         }
         nvs_close(ledger);
+    } else {
+        ESP_LOGE(TAG, "could not open phone delivery ledger");
     }
     s_sync_busy = false;
     ESP_LOGI(TAG, "phone sync finished: %u/%u delivered",
@@ -603,7 +661,18 @@ void voice_notes_counts(uint16_t* total, uint16_t* pending_phone) {
 }
 
 void voice_notes_request_sync(const char* host, const char* token) {
-    if (!s_available || !host || !host[0] || s_sync_busy || s_sync_requested) return;
+    if (!s_available) {
+        ESP_LOGW(TAG, "phone sync rejected: voice-note storage unavailable");
+        return;
+    }
+    if (!host || !host[0]) {
+        ESP_LOGW(TAG, "phone sync rejected: empty destination");
+        return;
+    }
+    if (s_sync_busy || s_sync_requested) {
+        ESP_LOGW(TAG, "phone sync rejected: another transfer is already active");
+        return;
+    }
     portENTER_CRITICAL(&s_sync_mux);
     snprintf(s_sync_host, sizeof(s_sync_host), "%s", host);
     if (token && strlen(token) == 32) snprintf(s_sync_token, sizeof(s_sync_token), "%s", token);
