@@ -14,7 +14,8 @@ Layout (all little-endian):
 RGB565A8 is LVGL 9's planar layout: the whole RGB565 map, then the whole A8 map.
 
 Sources:
-    assets/orb/dial_avi.h, assets/orb/dial_img.h   (uint16 arrays from orb-os)
+    assets/orb/dial_avi.h                          (uint16 array from orb-os)
+    assets/clocks/steampunk-india.png              (opaque RGB clock plate)
     assets/icons/*.png                              (launcher icons, any size, RGBA)
 
 Usage:  python3 tools/bake_art.py [out.bin]
@@ -44,9 +45,28 @@ def png_rgb565a8(path):
             rgb += struct.pack('<H', v); a.append(al)
     return w, h, bytes(rgb) + bytes(a)
 
+def png_rgb565(path):
+    from PIL import Image
+    im = Image.open(path).convert('RGB')
+    w, h = im.size
+    blob = bytearray()
+    for r, g, b in im.getdata():
+        v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+        blob += struct.pack('<H', v)
+    return w, h, bytes(blob)
+
 entries = []  # (name, w, h, fmt, blob)
 entries.append(('dial_avi', 466, 466, 0, parse_u16_header(os.path.join(ROOT, 'assets/orb/dial_avi.h'), 466, 466)))
-entries.append(('dial_img', 466, 466, 0, parse_u16_header(os.path.join(ROOT, 'assets/orb/dial_img.h'), 466, 466)))
+sw, sh, steam = png_rgb565(os.path.join(ROOT, 'assets/clocks/steampunk-india.png'))
+assert (sw, sh) == (466, 466), f'steampunk dial is {sw}x{sh}, expected 466x466'
+entries.append(('dial_steam', sw, sh, 0, steam))
+
+for name, rel in (
+    ('bg_rocky', 'assets/apps/rocky-workshop.png'),
+    ('bg_stopwatch', 'assets/apps/stopwatch-instrument.png'),
+):
+    w, h, blob = png_rgb565(os.path.join(ROOT, rel))
+    entries.append((name, w, h, 0, blob))
 
 icon_dir = os.path.join(ROOT, 'assets/icons')
 if os.path.isdir(icon_dir):

@@ -1,4 +1,4 @@
-// clock_faces.cpp — Aviator + Imperial faces from Orb OS, stacked on a 600x1024 screen.
+// clock_faces.cpp — local Aviator + India steampunk faces, stacked on 600x1024.
 //
 // Port notes (LVGL 8.4 -> 9, 466x466 round -> 600x1024 portrait):
 //   * Each face draws into its own 466x466 RGB565 canvas exactly as Orb did, so every
@@ -56,7 +56,7 @@ static constexpr float DEG2RAD = 3.14159265358979f / 180.0f;
 #define DIAL_TOP_Y    30
 #define DIAL_BOT_Y    (SCREEN_H_PX - 30 - DIAL_H)     // 528
 
-// Imperial date window and Aviator banner arc — from Orb's clock_view.cpp.
+// Lower date window and Aviator banner arc — from Orb's clock_view.cpp.
 static constexpr int   DATE_WIN_X    = 233;
 static constexpr int   DATE_WIN_Y    = 328;
 static constexpr float AVI_DATE_R    = 184.0f;
@@ -68,8 +68,8 @@ static constexpr float HAND_SHADOW_DX = -4.0f;
 static constexpr float HAND_SHADOW_DY =  7.0f;
 
 // ── palette (Orb's) ───────────────────────────────────────────────────────────
-#define COL_HAND       lv_color_make(0xE4, 0xE9, 0xF0)   // imperial silver
-#define COL_HAND_EDGE  lv_color_make(0x0A, 0x16, 0x28)   // imperial hand outline
+#define COL_HAND       lv_color_make(0xE6, 0xB8, 0x58)   // steampunk polished brass
+#define COL_HAND_EDGE  lv_color_make(0x2B, 0x16, 0x08)   // dark bronze outline
 #define COL_DATE       lv_color_make(0xF2, 0xF5, 0xF9)
 #define COL_LUME_EDGE  lv_color_make(0x38, 0x2E, 0x18)   // dark sepia
 #define COL_GOLD       lv_color_make(0xCB, 0xA5, 0x54)   // polished gold boss
@@ -86,10 +86,10 @@ struct Face {
 static lv_obj_t*   s_screen   = nullptr;
 static lv_timer_t* s_tick     = nullptr;
 static Face        s_aviator;
-static Face        s_imperial;
+static Face        s_steampunk;
 static bool        s_noTime   = false;
 static const uint8_t* s_dialAvi = nullptr;   // 466x466 RGB565 in mapped flash, or NULL
-static const uint8_t* s_dialImp = nullptr;
+static const uint8_t* s_dialSteam = nullptr;
 static bool        s_artWarned = false;
 
 // Aviator hand sprites (lv_image objects on the screen, above the canvas).
@@ -226,22 +226,28 @@ static void draw_arc_text(lv_layer_t* L, float cx, float cy, float R, float midD
 // ── time ──────────────────────────────────────────────────────────────────────
 // Until NTP has set the clock, show the face at 12:00 with the seconds running and no
 // date — the way every oven reads "not set" — rather than a black dial. (Orb's rule.)
-static void time_for_face(struct tm* ti) {
+static void time_for_faces(struct tm* local, struct tm* india) {
     time_t now = time(NULL);
-    localtime_r(&now, ti);
+    localtime_r(&now, local);
+    time_t india_now = now + (5 * 60 + 30) * 60;  // IST is fixed UTC+05:30
+    gmtime_r(&india_now, india);
     if (now > 1704067200L) { s_noTime = false; return; }
-    ti->tm_hour = 0; ti->tm_min = 0;
+    local->tm_hour = india->tm_hour = 0;
+    local->tm_min  = india->tm_min  = 0;
     s_noTime = true;
 }
 
-// ── IMPERIAL face ─────────────────────────────────────────────────────────────
-static void draw_imperial(const struct tm* ti) {
-    Face& f = s_imperial;
-    if (s_dialImp) memcpy(f.buf, s_dialImp, (size_t)DIAL_W * DIAL_H * 2);
+// ── STEAMPUNK INDIA face ──────────────────────────────────────────────────────
+static void draw_steampunk(const struct tm* ti) {
+    Face& f = s_steampunk;
+    if (s_dialSteam) memcpy(f.buf, s_dialSteam, (size_t)DIAL_W * DIAL_H * 2);
     else           memset(f.buf, 0x10, (size_t)DIAL_W * DIAL_H * 2);   // no art: dark plate, hands still tell the time
 
     lv_layer_t L;
     lv_canvas_init_layer(f.canvas, &L);
+
+    draw_text(&L, 143, 91, 180, &lv_font_montserrat_20, COL_DATE,
+              LV_TEXT_ALIGN_CENTER, "INDIA  IST");
 
     if (!s_noTime) {
         char ds[4];
@@ -319,10 +325,10 @@ static void draw_aviator(const struct tm* ti) {
 // ── redraw / tick ─────────────────────────────────────────────────────────────
 static void redraw_all(void) {
     if (!s_screen) return;
-    struct tm ti;
-    time_for_face(&ti);
-    draw_aviator(&ti);
-    draw_imperial(&ti);
+    struct tm local, india;
+    time_for_faces(&local, &india);
+    draw_aviator(&local);
+    draw_steampunk(&india);
 }
 
 static void tick_cb(lv_timer_t*) {
@@ -337,7 +343,7 @@ void clock_faces_refresh(void) { redraw_all(); }
 static void on_screen_delete(lv_event_t*) {
     if (s_tick) { lv_timer_delete(s_tick); s_tick = nullptr; }
     s_screen = nullptr;
-    s_aviator.canvas = s_imperial.canvas = nullptr;
+    s_aviator.canvas = s_steampunk.canvas = nullptr;
     s_hourImg = s_minImg = s_hourShadow = s_minShadow = nullptr;
 }
 
@@ -345,16 +351,17 @@ static void on_screen_delete(lv_event_t*) {
 static bool ensure_buffers(void) {
     const size_t bytes = (size_t)DIAL_W * DIAL_H * 2;
     if (!s_aviator.buf)  s_aviator.buf  = (uint16_t*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_imperial.buf) s_imperial.buf = (uint16_t*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_aviator.buf || !s_imperial.buf) {
+    if (!s_steampunk.buf) s_steampunk.buf = (uint16_t*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_aviator.buf || !s_steampunk.buf) {
         ESP_LOGE(TAG, "PSRAM alloc for clock canvases failed");
         return false;
     }
     if (!s_dialAvi) { const ArtEntry* e = art_find("dial_avi"); if (e && e->w == DIAL_W && e->h == DIAL_H) s_dialAvi = art_data(e); }
-    if (!s_dialImp) { const ArtEntry* e = art_find("dial_img"); if (e && e->w == DIAL_W && e->h == DIAL_H) s_dialImp = art_data(e); }
-    if ((!s_dialAvi || !s_dialImp) && !s_artWarned) {
+    if (!s_dialSteam) { const ArtEntry* e = art_find("dial_steam"); if (e && e->w == DIAL_W && e->h == DIAL_H) s_dialSteam = art_data(e); }
+    if ((!s_dialAvi || !s_dialSteam) && !s_artWarned) {
         s_artWarned = true;
-        ESP_LOGE(TAG, "dial art missing from the art partition (avi=%d imp=%d) - drawing hands on a plain plate", (int)!!s_dialAvi, (int)!!s_dialImp);
+        ESP_LOGE(TAG, "dial art missing (avi=%d steam=%d) - drawing hands on a plain plate",
+                 (int)!!s_dialAvi, (int)!!s_dialSteam);
     }
     static bool sprites_done = false;
     if (!sprites_done) {
@@ -403,9 +410,9 @@ lv_obj_t* clock_faces_build(void) {
     lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_screen, on_screen_delete, LV_EVENT_DELETE, NULL);
 
-    // Aviator on top, Imperial below.
+    // Local-time Aviator on top, India-time steampunk below.
     make_canvas(s_screen, s_aviator,  DIAL_X, DIAL_TOP_Y);
-    make_canvas(s_screen, s_imperial, DIAL_X, DIAL_BOT_Y);
+    make_canvas(s_screen, s_steampunk, DIAL_X, DIAL_BOT_Y);
 
     // Aviator hands: shadows first (so they render underneath), then the hands.
     s_hourShadow = make_hand(s_screen, &s_dscHourShadow, HAND_HOUR_SHADOW_IMG_PIVOT_X, HAND_HOUR_SHADOW_IMG_PIVOT_Y,

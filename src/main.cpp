@@ -2498,23 +2498,25 @@ static i2s_chan_handle_t g_i2s_tx = NULL;
 static void melody_task(void* arg) {
     Note* notes = (Note*)arg;
     ESP_LOGI(TAG, "melody_task start freq=%lu", (unsigned long)notes[0].freq);
-    for (int i = 0; notes[i].freq; i++) {
+    for (int i = 0; notes[i].freq || notes[i].ms; i++) {
         int n = (AUDIO_SAMPLE_RATE * (int)notes[i].ms) / 1000;
-        // stereo: L + R per frame = n * 4 bytes
-        int16_t* buf = (int16_t*)malloc((size_t)n * 4);
+        // Match Elecrow's board firmware: 32-bit MSB mono on I2S1. A zero
+        // frequency with a non-zero duration is a rest, not the terminator.
+        int32_t* buf = (int32_t*)malloc((size_t)n * sizeof(int32_t));
         if (!buf) break;
         int fade = AUDIO_SAMPLE_RATE / 50;
         for (int s = 0; s < n; s++) {
             float env = (s < fade) ? (float)s / fade
                       : (s > n - fade) ? (float)(n - s) / fade : 1.0f;
-            int16_t sample = (int16_t)(sinf(2.f * (float)M_PI * notes[i].freq * s
-                                           / AUDIO_SAMPLE_RATE) * 26000.f * env
-                                      * ((float)g_volume / 100.f));
-            buf[s * 2]     = sample;  // L
-            buf[s * 2 + 1] = sample;  // R
+            int16_t sample = notes[i].freq ?
+                (int16_t)(sinf(2.f * (float)M_PI * notes[i].freq * s / AUDIO_SAMPLE_RATE)
+                          * 26000.f * env * ((float)g_volume / 100.f)) : 0;
+            buf[s] = (int32_t)sample * 65536;
         }
         size_t wr;
-        i2s_channel_write(g_i2s_tx, buf, (size_t)n * 4, &wr, pdMS_TO_TICKS(600));
+        esp_err_t err = i2s_channel_write(g_i2s_tx, buf, (size_t)n * sizeof(int32_t),
+                                          &wr, pdMS_TO_TICKS(notes[i].ms + 250));
+        if (err != ESP_OK) ESP_LOGE(TAG, "audio write failed: %s", esp_err_to_name(err));
         free(buf);
     }
     free(arg);
@@ -2524,7 +2526,7 @@ static void melody_task(void* arg) {
 void audio_play(const Note* seq) {
     if (!g_i2s_tx) return;
     int n = 0;
-    while (seq[n].freq) n++;
+    while (seq[n].freq || seq[n].ms) n++;
     Note* copy = (Note*)malloc((size_t)(n + 1) * sizeof(Note));
     if (!copy) return;
     memcpy(copy, seq, (size_t)(n + 1) * sizeof(Note));
@@ -2539,7 +2541,7 @@ static void audio_init(void) {
     gpio_set_level(AUDIO_PA_EN, 1);
     vTaskDelay(pdMS_TO_TICKS(50));  // amp settling time
 
-    i2s_chan_config_t ch_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+    i2s_chan_config_t ch_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
     esp_err_t ret = i2s_new_channel(&ch_cfg, &g_i2s_tx, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(ret));
@@ -2548,8 +2550,8 @@ static void audio_init(void) {
 
     i2s_std_config_t std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
-                                                       I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT,
+                                                    I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .mclk         = I2S_GPIO_UNUSED,
             .bclk         = AUDIO_I2S_BCLK,

@@ -1,4 +1,4 @@
-// clock_faces.h — two Orb OS analog clock faces (Aviator + Imperial), stacked on one
+// clock_faces.h — local Aviator + India steampunk analog faces, stacked on one
 // LVGL screen. This is the idle / home surface of the P4 device; the arcade sits one
 // tap behind it.
 //

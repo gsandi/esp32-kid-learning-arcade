@@ -6,14 +6,13 @@
 
 #include "focus_apps.h"
 #include "app_audio.h"
+#include "art_store.h"
 #include "rocky.h"
 #include "esp_lvgl_port.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
-
-extern const lv_font_t lv_font_montserrat_96_digits;
 
 static const char* TAG = "focus_apps";
 static constexpr uint32_t BG       = 0x120925;
@@ -50,6 +49,8 @@ static uint32_t  s_laps[3] = {};
 static uint8_t   s_lap_count = 0;
 
 static lv_timer_t* s_service = nullptr;
+static lv_image_dsc_t s_bg_rocky = {};
+static lv_image_dsc_t s_bg_stopwatch = {};
 
 // Pomodoro screen refs. They are nulled by the screen DELETE event.
 static lv_obj_t* s_pomo_scr = nullptr;
@@ -216,6 +217,8 @@ static void service_cb(lv_timer_t*) {
 }
 
 void focus_apps_init(void) {
+    art_image("bg_rocky", &s_bg_rocky);
+    art_image("bg_stopwatch", &s_bg_stopwatch);
     if (!s_service) s_service = lv_timer_create(service_cb, 250, nullptr);
 }
 
@@ -260,6 +263,7 @@ static void on_pomo_cancel(lv_event_t*) {
 }
 
 void focus_show_pomodoro(lv_event_cb_t home_cb) {
+    ESP_LOGI(TAG, "opening Rocky Focus");
     pomo_update_model();
     lvgl_port_lock(0);
     lv_obj_t* scr = lv_obj_create(nullptr);
@@ -268,13 +272,22 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_add_event_cb(scr, pomo_screen_deleted, LV_EVENT_DELETE, nullptr);
     add_header(scr, "ROCKY FOCUS", home_cb);
 
+    if (s_bg_rocky.data) {
+        lv_obj_t* backdrop = lv_image_create(scr);
+        lv_image_set_src(backdrop, &s_bg_rocky);
+        lv_obj_set_pos(backdrop, 20, 104);
+        lv_obj_set_style_radius(backdrop, 28, 0);
+        lv_obj_set_style_clip_corner(backdrop, true, 0);
+        lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
+    }
+
     lv_obj_t* face = rocky_create(scr, 300, 318, 0.72f);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
 
     s_pomo_status = label(scr, "", &lv_font_montserrat_24, ORANGE);
     lv_obj_align(s_pomo_status, LV_ALIGN_TOP_MID, 0, 455);
-    s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_96_digits, TEXT);
+    s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_48, TEXT);
     lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_MID, 0, 500);
     s_pomo_hint = label(scr, "", &lv_font_montserrat_20, MUTED);
     lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_MID, 0, 600);
@@ -322,6 +335,7 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     pomo_refresh();
     rocky_poll();
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    ESP_LOGI(TAG, "Rocky Focus screen loaded");
     lvgl_port_unlock();
 }
 
@@ -358,6 +372,7 @@ static void on_sw_reset(lv_event_t*) {
 }
 
 void focus_show_stopwatch(lv_event_cb_t home_cb) {
+    ESP_LOGI(TAG, "opening Stopwatch");
     lvgl_port_lock(0);
     lv_obj_t* scr = lv_obj_create(nullptr);
     style_screen(scr);
@@ -365,17 +380,25 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
     lv_obj_add_event_cb(scr, sw_screen_deleted, LV_EVENT_DELETE, nullptr);
     add_header(scr, "STOPWATCH", home_cb);
 
-    lv_obj_t* ring = lv_obj_create(scr);
+    lv_obj_t* ring;
+    if (s_bg_stopwatch.data) {
+        ring = lv_image_create(scr);
+        lv_image_set_src(ring, &s_bg_stopwatch);
+    } else {
+        ring = lv_obj_create(scr);
+        lv_obj_set_style_bg_color(ring, lv_color_hex(PANEL), 0);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(ring, 7, 0);
+        lv_obj_set_style_border_color(ring, lv_color_hex(TEAL), 0);
+    }
     lv_obj_set_size(ring, 480, 480);
     lv_obj_align(ring, LV_ALIGN_TOP_MID, 0, 145);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(ring, lv_color_hex(PANEL), 0);
-    lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(ring, 7, 0);
-    lv_obj_set_style_border_color(ring, lv_color_hex(TEAL), 0);
+    lv_obj_set_style_clip_corner(ring, true, 0);
     lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 
-    s_sw_digits = label(ring, "00:00", &lv_font_montserrat_96_digits, TEXT);
+    s_sw_digits = label(ring, "00:00", &lv_font_montserrat_48, TEXT);
     lv_obj_center(s_sw_digits);
     lv_obj_t* helper = label(ring, "elapsed", &lv_font_montserrat_20, MUTED);
     lv_obj_align(helper, LV_ALIGN_CENTER, 0, 75);
@@ -395,5 +418,6 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
 
     sw_refresh();
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    ESP_LOGI(TAG, "Stopwatch screen loaded");
     lvgl_port_unlock();
 }
