@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -108,7 +109,28 @@ void ledger_key(const char* filename, char out[12]) {
 
 bool is_wav_name(const char* name) {
     size_t len = name ? strlen(name) : 0;
-    return len > 4 && strcmp(name + len - 4, ".wav") == 0;
+    return len > 4 && strcasecmp(name + len - 4, ".wav") == 0;
+}
+
+void audit_directory(const char* path) {
+    DIR* dir = opendir(path);
+    if (!dir) {
+        ESP_LOGW(TAG, "SD inventory cannot open %s: errno=%d", path, errno);
+        return;
+    }
+    unsigned entries = 0;
+    for (dirent* ent = readdir(dir); ent; ent = readdir(dir)) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+        char full[384];
+        snprintf(full, sizeof(full), "%s/%s", path, ent->d_name);
+        struct stat info = {};
+        long size = stat(full, &info) == 0 ? (long)info.st_size : -1;
+        ESP_LOGI(TAG, "SD inventory %s size=%ld%s", full, size,
+                 is_wav_name(ent->d_name) ? " [note]" : "");
+        ++entries;
+    }
+    closedir(dir);
+    ESP_LOGI(TAG, "SD inventory %s: %u entries", path, entries);
 }
 
 void refresh_counts(void) {
@@ -559,6 +581,12 @@ void voice_notes_set_storage_available(bool sd_available) {
         return;
     }
     s_available = true;
+    // The card has no detect line and may have been prepared by the S3 or a
+    // desktop. Inventory both the mount root and note directory whenever it is
+    // mounted so a wrong count is explainable from one boot log instead of an
+    // opaque cached number on screen.
+    audit_directory("/sdcard");
+    audit_directory(NOTES_DIR);
     refresh_counts();
     ESP_LOGI(TAG, "SD storage ready; voice-note recorder enabled");
 }
