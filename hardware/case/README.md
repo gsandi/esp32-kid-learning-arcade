@@ -87,6 +87,23 @@ The stand is 174 x 76 mm. The 0.4 mm-per-side panel clearance is intentionally
 conservative; adjust `xy_clearance` after the coupon and a dry fit if your
 printer consistently runs tight or loose.
 
+## Bambu Studio validation
+
+The committed STL files were imported through Bambu Studio 2.7.1.62's own
+command-line parser. All four returned exit code 0, `manifold = yes`, and
+`number_of_parts = 1`:
+
+| STL | Bambu-reported size (mm) | Facets |
+|---|---:|---:|
+| Front bezel | 185.6 x 111.0 x 8.0 | 2,160 |
+| Closed rear | 185.6 x 111.0 x 18.2 | 4,852 |
+| Angled stand | 174.0 x 76.0 x 38.95 | 892 |
+| Fit coupon | 34.0 x 52.0 x 14.0 | 2,368 |
+
+They were also independently checked for watertightness and consistent winding
+with Trimesh. These checks establish that the files are valid slicer inputs;
+they do not replace the recommended physical coupon and dry-fit test.
+
 ## Assembly
 
 1. Print and check the coupon with the intended USB cable and heat-set insert.
