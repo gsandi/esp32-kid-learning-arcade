@@ -283,10 +283,10 @@ static void format_clock(char* out, size_t n, uint32_t sec, bool hours) {
 // animation costs one LVGL object instead of 60.  One tooth falls dark each second,
 // then the frame relights at the minute boundary like a mechanical escapement.
 static void pomo_tick_area(uint8_t i, lv_area_t* a) {
-    constexpr int left = 34;
-    constexpr int right = 566;
-    constexpr int top = 118;
-    constexpr int bottom = 682;
+    constexpr int left = 26;
+    constexpr int right = 492;
+    constexpr int top = 106;
+    constexpr int bottom = 574;
     constexpr int h_count = 16;
     constexpr int v_count = 14;
     constexpr int h_w = 23;
@@ -346,7 +346,7 @@ static void draw_pomo_ticks(lv_event_t* e) {
 
 static void create_pomo_ticks(lv_obj_t* parent) {
     s_pomo_tick_frame = lv_obj_create(parent);
-    lv_obj_set_size(s_pomo_tick_frame, 600, 1024);
+    lv_obj_set_size(s_pomo_tick_frame, 1024, 600);
     lv_obj_set_pos(s_pomo_tick_frame, 0, 0);
     lv_obj_set_style_bg_opa(s_pomo_tick_frame, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_pomo_tick_frame, 0, 0);
@@ -577,20 +577,24 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     create_pomo_ticks(scr);
 
     // Deliberately quiet: gaze, countdown, progress, controls. Nothing else.
-    lv_obj_t* face = rocky_create(scr, 300, 305, 0.90f);
+    // Instrument and character occupy the left half; time and controls own the
+    // right half.  The split remains stable while the session is running.
+    lv_obj_t* face = rocky_create(scr, 258, 306, 0.82f);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
 
     s_pomo_status = label(scr, "", &lv_font_montserrat_24, ORANGE);
-    lv_obj_align(s_pomo_status, LV_ALIGN_TOP_MID, 0, 440);
+    lv_obj_align(s_pomo_status, LV_ALIGN_TOP_LEFT, 640, 132);
     s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_48, TEXT);
-    lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_MID, 0, 490);
+    lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_LEFT, 610, 184);
     s_pomo_hint = label(scr, "", &lv_font_montserrat_20, MUTED);
-    lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_MID, 0, 575);
+    lv_obj_set_width(s_pomo_hint, 430);
+    lv_obj_set_style_text_align(s_pomo_hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_LEFT, 552, 256);
 
     s_pomo_presets = lv_obj_create(scr);
-    lv_obj_set_size(s_pomo_presets, 560, 210);
-    lv_obj_align(s_pomo_presets, LV_ALIGN_BOTTOM_MID, 0, -58);
+    lv_obj_set_size(s_pomo_presets, 480, 220);
+    lv_obj_align(s_pomo_presets, LV_ALIGN_BOTTOM_RIGHT, -18, -38);
     lv_obj_set_style_bg_opa(s_pomo_presets, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_pomo_presets, 0, 0);
     lv_obj_set_style_pad_all(s_pomo_presets, 0, 0);
@@ -599,27 +603,27 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     char names[3][12];
     for (int i = 0; i < 3; ++i) snprintf(names[i], sizeof(names[i]), "%u min", mins[i]);
     for (int i = 0; i < 3; ++i) {
-        lv_obj_t* b = button(s_pomo_presets, names[i], 168, 96, i == 1 ? ORANGE : PANEL,
+        lv_obj_t* b = button(s_pomo_presets, names[i], 142, 88, i == 1 ? ORANGE : PANEL,
                              on_preset, (void*)(uintptr_t)mins[i]);
-        lv_obj_set_pos(b, 8 + i * 184, 20);
+        lv_obj_set_pos(b, 8 + i * 158, 24);
     }
     lv_obj_t* preset_hint = label(s_pomo_presets, "Short sprint     Classic focus     Deep focus",
                                   &lv_font_montserrat_18, MUTED);
     lv_obj_align(preset_hint, LV_ALIGN_BOTTOM_MID, 0, -28);
 
     s_pomo_controls = lv_obj_create(scr);
-    lv_obj_set_size(s_pomo_controls, 560, 150);
-    lv_obj_align(s_pomo_controls, LV_ALIGN_BOTTOM_MID, 0, -60);
+    lv_obj_set_size(s_pomo_controls, 480, 150);
+    lv_obj_align(s_pomo_controls, LV_ALIGN_BOTTOM_RIGHT, -18, -54);
     lv_obj_set_style_bg_opa(s_pomo_controls, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_pomo_controls, 0, 0);
     lv_obj_set_style_pad_all(s_pomo_controls, 0, 0);
     lv_obj_remove_flag(s_pomo_controls, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t* primary = button(s_pomo_controls, "Pause", 236, 92, ORANGE, on_pomo_primary);
+    lv_obj_t* primary = button(s_pomo_controls, "Pause", 190, 88, ORANGE, on_pomo_primary);
     lv_obj_align(primary, LV_ALIGN_LEFT_MID, 8, 0);
     s_pomo_primary_lbl = lv_obj_get_child(primary, 0);
-    s_pomo_add_btn = button(s_pomo_controls, "+5 min", 136, 92, PURPLE, on_pomo_add_five);
-    lv_obj_align(s_pomo_add_btn, LV_ALIGN_CENTER, 45, 0);
-    lv_obj_t* cancel = button(s_pomo_controls, "End", 136, 92, PANEL, on_pomo_cancel);
+    s_pomo_add_btn = button(s_pomo_controls, "+5 min", 126, 88, PURPLE, on_pomo_add_five);
+    lv_obj_align(s_pomo_add_btn, LV_ALIGN_CENTER, 30, 0);
+    lv_obj_t* cancel = button(s_pomo_controls, "End", 126, 88, PANEL, on_pomo_cancel);
     lv_obj_align(cancel, LV_ALIGN_RIGHT_MID, -8, 0);
 
     pomo_refresh();
@@ -682,7 +686,7 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
         lv_obj_set_style_border_color(ring, lv_color_hex(TEAL), 0);
     }
     lv_obj_set_size(ring, 480, 480);
-    lv_obj_align(ring, LV_ALIGN_TOP_MID, 0, 145);
+    lv_obj_align(ring, LV_ALIGN_BOTTOM_LEFT, 16, -18);
     // Large clip-corner layers exhaust LVGL's 64 KB draw heap. The generated
     // instrument already draws its own circular bezel, so it needs no mask.
     if (!s_bg_stopwatch.data) lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
@@ -695,17 +699,17 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
     lv_obj_align(helper, LV_ALIGN_CENTER, 0, 75);
 
     s_sw_laps_lbl = label(scr, "No laps yet", &lv_font_montserrat_20, MUTED);
-    lv_obj_set_style_text_align(s_sw_laps_lbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_sw_laps_lbl, 520);
-    lv_obj_align(s_sw_laps_lbl, LV_ALIGN_TOP_MID, 0, 660);
+    lv_obj_set_style_text_align(s_sw_laps_lbl, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_width(s_sw_laps_lbl, 430);
+    lv_obj_align(s_sw_laps_lbl, LV_ALIGN_TOP_LEFT, 548, 156);
 
-    lv_obj_t* primary = button(scr, "Start", 250, 92, TEAL, on_sw_primary);
-    lv_obj_align(primary, LV_ALIGN_BOTTOM_LEFT, 28, -54);
+    lv_obj_t* primary = button(scr, "Start", 210, 88, TEAL, on_sw_primary);
+    lv_obj_align(primary, LV_ALIGN_BOTTOM_LEFT, 530, -62);
     s_sw_primary_lbl = lv_obj_get_child(primary, 0);
-    lv_obj_t* lap = button(scr, "Lap", 130, 92, PURPLE, on_sw_lap);
-    lv_obj_align(lap, LV_ALIGN_BOTTOM_MID, 74, -54);
-    lv_obj_t* reset = button(scr, "Reset", 130, 92, PANEL, on_sw_reset);
-    lv_obj_align(reset, LV_ALIGN_BOTTOM_RIGHT, -28, -54);
+    lv_obj_t* lap = button(scr, "Lap", 112, 88, PURPLE, on_sw_lap);
+    lv_obj_align(lap, LV_ALIGN_BOTTOM_LEFT, 752, -62);
+    lv_obj_t* reset = button(scr, "Reset", 112, 88, PANEL, on_sw_reset);
+    lv_obj_align(reset, LV_ALIGN_BOTTOM_RIGHT, -36, -62);
 
     sw_refresh();
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);

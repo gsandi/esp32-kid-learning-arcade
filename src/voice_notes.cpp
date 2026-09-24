@@ -776,19 +776,21 @@ void voice_notes_show(lv_event_cb_t home_cb) {
     lv_obj_center(back_text);
 
     lv_obj_t* title = make_label(screen, "VOICE NOTES", &lv_font_montserrat_28, 0xF4C95D);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 120, 30);
     lv_obj_t* subtitle = make_label(screen, "Record here. Replay anytime.",
                                     &lv_font_montserrat_18, 0xA99CB8);
-    lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 78);
+    lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 120, 102);
 
     s_duration_label = make_label(screen, "0:00", &lv_font_montserrat_48, 0xFFF7E8);
-    lv_obj_align(s_duration_label, LV_ALIGN_TOP_MID, 0, 118);
+    lv_obj_align(s_duration_label, LV_ALIGN_TOP_LEFT, 178, 154);
     s_status_label = make_label(screen, "", &lv_font_montserrat_18, 0xB8A9CB);
-    lv_obj_align(s_status_label, LV_ALIGN_TOP_MID, 0, 170);
+    lv_obj_set_width(s_status_label, 410);
+    lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_LEFT, 30, 218);
 
     s_record_button = lv_button_create(screen);
     lv_obj_set_size(s_record_button, 210, 210);
-    lv_obj_align(s_record_button, LV_ALIGN_TOP_MID, 0, 210);
+    lv_obj_align(s_record_button, LV_ALIGN_TOP_LEFT, 130, 278);
     lv_obj_set_style_radius(s_record_button, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(s_record_button, 10, 0);
     lv_obj_set_style_border_color(s_record_button, lv_color_hex(0xFF8797), 0);
@@ -804,14 +806,16 @@ void voice_notes_show(lv_event_cb_t home_cb) {
     lv_obj_center(s_record_button_label);
 
     s_count_label = make_label(screen, "", &lv_font_montserrat_20, 0xA99CB8);
-    lv_obj_align(s_count_label, LV_ALIGN_TOP_MID, 0, 438);
+    lv_obj_set_width(s_count_label, 410);
+    lv_obj_set_style_text_align(s_count_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_count_label, LV_ALIGN_TOP_LEFT, 30, 520);
 
     lv_obj_t* library_title = make_label(screen, "ON THIS DEVICE",
                                          &lv_font_montserrat_18, 0xF4C95D);
-    lv_obj_align(library_title, LV_ALIGN_TOP_LEFT, 28, 492);
+    lv_obj_align(library_title, LV_ALIGN_TOP_LEFT, 486, 86);
     s_library = lv_obj_create(screen);
-    lv_obj_set_size(s_library, 544, 466);
-    lv_obj_align(s_library, LV_ALIGN_TOP_MID, 0, 530);
+    lv_obj_set_size(s_library, 520, 466);
+    lv_obj_align(s_library, LV_ALIGN_TOP_RIGHT, -18, 118);
     lv_obj_set_flex_flow(s_library, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_library, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);

@@ -1,6 +1,6 @@
-// clock_faces.cpp — local Orb Imperial + India steampunk faces, stacked on 600x1024.
+// clock_faces.cpp — local Orb Imperial + India steampunk faces, side by side on 1024x600.
 //
-// Port notes (LVGL 8.4 -> 9, 466x466 round -> 600x1024 portrait):
+// Port notes (LVGL 8.4 -> 9, two 466x466 faces -> 1024x600 landscape):
 //   * Each face draws into its own 466x466 RGB565 canvas exactly as Orb did, so every
 //     coordinate in the face code is still dial-local with the centre at (233,233). The
 //     canvases are placed on the screen; nothing here knows about the panel size except
@@ -34,13 +34,11 @@ static constexpr float CX = 233.0f;
 static constexpr float CY = 233.0f;
 static constexpr float DEG2RAD = 3.14159265358979f / 180.0f;
 
-// Placement on the 600x1024 portrait screen: two dials stacked, 30 px top and bottom
-// margin, 32 px between. Centred horizontally.
-#define SCREEN_W_PX   600
-#define SCREEN_H_PX   1024
-#define DIAL_X        ((SCREEN_W_PX - DIAL_W) / 2)     // 67
-#define DIAL_TOP_Y    30
-#define DIAL_BOT_Y    (SCREEN_H_PX - 30 - DIAL_H)     // 528
+// Two native-size faces fit side by side without resampling: 30 px outer margins,
+// 32 px between them, and 67 px above/below.
+#define DIAL_LEFT_X   30
+#define DIAL_RIGHT_X  (DIAL_LEFT_X + DIAL_W + 32)
+#define DIAL_Y        67
 
 // Date window shared by the two instrument faces.
 static constexpr int   DATE_WIN_X    = 233;
@@ -330,9 +328,9 @@ lv_obj_t* clock_faces_build(void) {
     lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_screen, on_screen_delete, LV_EVENT_DELETE, NULL);
 
-    // Local-time embossed Orb Imperial on top, India-time steampunk below.
-    make_canvas(s_screen, s_local,  DIAL_X, DIAL_TOP_Y);
-    make_canvas(s_screen, s_steampunk, DIAL_X, DIAL_BOT_Y);
+    // Local-time embossed Orb Imperial left, India-time steampunk right.
+    make_canvas(s_screen, s_local, DIAL_LEFT_X, DIAL_Y);
+    make_canvas(s_screen, s_steampunk, DIAL_RIGHT_X, DIAL_Y);
 
     redraw_all();
     s_tick = lv_timer_create(tick_cb, 1000, NULL);

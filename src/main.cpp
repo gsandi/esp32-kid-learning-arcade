@@ -1,5 +1,5 @@
 /*
- * kid_arcade — ESP32-P4 CrowPanel 7" (1024×600 MIPI DSI, portrait 600×1024)
+ * kid_arcade — ESP32-P4 CrowPanel 7" (1024×600 MIPI DSI, landscape desk UI)
  * Full game: Math + Reading, app-launcher UI, LVGL 9, IDF 6.0.1
  */
 
@@ -96,9 +96,10 @@
 #define C_SUBTEXT     0xBBAADD   // soft lavender subtext
 #define C_STAR        0xFFD166   // star gold (alias)
 
-// Logical display size after sw_rotate + ROTATION_270 (portrait)
-#define SCR_W  600
-#define SCR_H  1024
+// Rocky Desk is a landscape appliance.  Keep one canonical coordinate system
+// instead of maintaining two subtly different interfaces behind a setting.
+#define SCR_W  1024
+#define SCR_H  600
 
 // ── Question bank structs ─────────────────────────────────────────────────────
 enum QType {
@@ -1277,7 +1278,7 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
                                 const char* subtitle, uint32_t bg,
                                 lv_event_cb_t cb) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, SCR_W - 60, 360);
+    lv_obj_set_size(card, 454, 410);
     lv_obj_set_style_bg_color(card, lv_color_hex(bg), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(card, 32, 0);
@@ -1367,16 +1368,8 @@ static void show_home(void) {
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Background photo (PSRAM copy if available, flash fallback)
-    extern const lv_image_dsc_t bg_img;
-    const lv_image_dsc_t* bg_src = g_bg_img_psram.data ? &g_bg_img_psram : &bg_img;
-    lv_obj_t* bg = lv_image_create(scr);
-    lv_image_set_src(bg, bg_src);
-    lv_obj_set_pos(bg, 0, 0);
-    lv_obj_remove_flag(bg, LV_OBJ_FLAG_CLICKABLE);
-    // Uniform dark tint over the photo — no band, just consistent dimming
-    lv_obj_set_style_image_recolor(bg, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_image_recolor_opa(bg, 150, 0);  // ~59% darkening
+    // The old wallpaper is portrait artwork.  A clean near-black field avoids
+    // stretching it across the desk display and lets the app artwork lead.
 
     // ── Top 20%: status bar + greeting widget (~205px) ────────────────────
     // Status bar: transparent 60px, stars left, long-press → admin
@@ -1413,28 +1406,30 @@ static void show_home(void) {
     // Greeting + time (save refs for live updates)
     g_home_greet_lbl = make_label(scr, init_greet, &lv_font_montserrat_24, C_SUBTEXT);
     lv_obj_set_style_opa(g_home_greet_lbl, LV_OPA_60, 0);
-    lv_obj_align(g_home_greet_lbl, LV_ALIGN_TOP_MID, 0, 84);
+    lv_obj_align(g_home_greet_lbl, LV_ALIGN_TOP_LEFT, 24, 76);
     apply_wallpaper_stroke(g_home_greet_lbl);
 
     g_home_time_lbl = make_label(scr, init_time, &lv_font_montserrat_48, C_GOLD);
-    lv_obj_align(g_home_time_lbl, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_align(g_home_time_lbl, LV_ALIGN_TOP_LEFT, 24, 108);
     apply_wallpaper_stroke(g_home_time_lbl);
 
     const char* w_init = g_weather_buf[0] ? g_weather_buf : "Connect WiFi for weather";
     g_home_weather_lbl = make_label(scr, w_init, &lv_font_montserrat_24, C_SUBTEXT);
     lv_obj_set_style_opa(g_home_weather_lbl, LV_OPA_60, 0);
-    lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_MID, 0, 182);
+    lv_obj_set_width(g_home_weather_lbl, 250);
+    lv_label_set_long_mode(g_home_weather_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_align(g_home_weather_lbl, LV_ALIGN_TOP_LEFT, 24, 168);
     apply_wallpaper_stroke(g_home_weather_lbl);
 
     // ── App grid: generated artwork, compact labels ───────────────────────
     // Four real apps now share the launcher. The art lives in the mapped data
     // partition so adding it does not squeeze the 4 MB OTA app slot.
-    const int TILE_W = 220, TILE_H = 220, TILE_GAP = 18;
-    const int GRID_X = (SCR_W - (TILE_W * 2 + TILE_GAP)) / 2;
-    const int ROW_1 = 390, ROW_2 = ROW_1 + TILE_H + TILE_GAP;
+    const int TILE_W = 164, TILE_H = 202, TILE_GAP = 16;
+    const int GRID_X = 292;
+    const int ROW_1 = 222;
 
     lv_obj_t* voice_tile = make_app_tile(scr, NULL, "Voice Notes", 0x4A1830, 0x250B19,
-                                         GRID_X, 250, TILE_W * 2 + TILE_GAP, 118,
+                                         292, 82, 692, 112,
                                          on_launch_voice);
     lv_obj_t* mic_dot = lv_obj_create(voice_tile);
     lv_obj_set_size(mic_dot, 48, 48);
@@ -1455,11 +1450,11 @@ static void show_home(void) {
     make_app_tile(scr, &g_icon_arcade, "Arcade", C_MATH, C_MATH_DK,
                   GRID_X, ROW_1, TILE_W, TILE_H, on_launch_arcade);
     lv_obj_t* focus_tile = make_app_tile(scr, &g_icon_focus, "Rocky Focus", 0x5D3A8C, 0x3B225F,
-                  GRID_X + TILE_W + TILE_GAP, ROW_1, TILE_W, TILE_H, on_launch_focus);
+                  GRID_X + (TILE_W + TILE_GAP), ROW_1, TILE_W, TILE_H, on_launch_focus);
     lv_obj_t* sw_tile = make_app_tile(scr, &g_icon_stopwatch, "Stopwatch", 0x168F93, 0x0C5C68,
-                  GRID_X, ROW_2, TILE_W, TILE_H, on_launch_stopwatch);
+                  GRID_X + 2 * (TILE_W + TILE_GAP), ROW_1, TILE_W, TILE_H, on_launch_stopwatch);
     make_app_tile(scr, &g_icon_settings, "Settings", C_BTN_ALT, 0x4A339A,
-                  GRID_X + TILE_W + TILE_GAP, ROW_2, TILE_W, TILE_H, on_launch_settings);
+                  GRID_X + 3 * (TILE_W + TILE_GAP), ROW_1, TILE_W, TILE_H, on_launch_settings);
 
     auto add_live_dot = [](lv_obj_t* tile) {
         lv_obj_t* dot = lv_obj_create(tile);
@@ -1510,8 +1505,17 @@ static void launch_arcade(void) {
                               &lv_font_montserrat_32, C_GOLD);
     lv_obj_align(hl, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t* col = make_col(scr, SCR_W, SCR_H - 88, 36);
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 88);
+    lv_obj_t* col = lv_obj_create(scr);
+    lv_obj_set_size(col, 960, 430);
+    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 112);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col, 0, 0);
+    lv_obj_set_style_pad_all(col, 0, 0);
+    lv_obj_set_style_pad_column(col, 28, 0);
+    lv_obj_set_layout(col, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
 
     make_game_card(col, "MATH", "Count   Add   Skip   Multiply",
                    C_MATH, on_math_tap);
@@ -1559,7 +1563,7 @@ static void launch_settings(void) {
 
     // ── Scrollable content column ─────────────────────────────────────────
     lv_obj_t* col = lv_obj_create(scr);
-    lv_obj_set_size(col, 552, SCR_H - 84);
+    lv_obj_set_size(col, 960, SCR_H - 84);
     lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 80);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(col, 0, 0);
@@ -1575,9 +1579,9 @@ static void launch_settings(void) {
         lv_label_set_text(lbl, name);
         lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(C_SUBTEXT), 0);
-        lv_obj_set_width(lbl, 552);
+        lv_obj_set_width(lbl, 960);
         lv_obj_t* rule = lv_obj_create(col);
-        lv_obj_set_size(rule, 552, 2);
+        lv_obj_set_size(rule, 960, 2);
         lv_obj_set_style_bg_color(rule, lv_color_hex(0x3A2862), 0);
         lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(rule, 0, 0);
@@ -1590,7 +1594,7 @@ static void launch_settings(void) {
     // Card helper
     auto make_card = [&](int32_t h) -> lv_obj_t* {
         lv_obj_t* c = lv_obj_create(col);
-        lv_obj_set_size(c, 552, h);
+        lv_obj_set_size(c, 960, h);
         lv_obj_set_style_bg_color(c, lv_color_hex(0x1A0F3E), 0);
         lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(c, 20, 0);
@@ -1622,7 +1626,7 @@ static void launch_settings(void) {
     g_connectivity_wifi_title = lv_label_create(wifi_card);
     lv_obj_set_style_text_font(g_connectivity_wifi_title, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(g_connectivity_wifi_title, lv_color_hex(C_CARD_TXT), 0);
-    lv_obj_set_width(g_connectivity_wifi_title, 305);
+    lv_obj_set_width(g_connectivity_wifi_title, 650);
     lv_label_set_long_mode(g_connectivity_wifi_title, LV_LABEL_LONG_DOT);
     lv_obj_align(g_connectivity_wifi_title, LV_ALIGN_LEFT_MID, 42, -16);
 
@@ -1751,7 +1755,7 @@ static void launch_settings(void) {
     lv_obj_align(br_val, LV_ALIGN_TOP_MID, 0, 44);
 
     lv_obj_t* sld = lv_slider_create(br_card);
-    lv_obj_set_size(sld, 460, 36);
+    lv_obj_set_size(sld, 820, 36);
     lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -38);
     lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
     lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
@@ -1796,7 +1800,7 @@ static void launch_settings(void) {
     lv_obj_align(vol_val, LV_ALIGN_TOP_MID, 0, 44);
 
     lv_obj_t* vsld = lv_slider_create(vol_card);
-    lv_obj_set_size(vsld, 460, 36);
+    lv_obj_set_size(vsld, 820, 36);
     lv_obj_align(vsld, LV_ALIGN_BOTTOM_MID, 0, -38);
     lv_slider_set_range(vsld, 0, 100);
     lv_slider_set_value(vsld, g_volume, LV_ANIM_OFF);
@@ -1992,19 +1996,21 @@ static void show_wifi_password_screen(const char* ssid) {
     char net_buf[80];
     snprintf(net_buf, sizeof(net_buf), "Network: %s", ssid);
     lv_obj_t* net_lbl = make_label(scr, net_buf, &lv_font_montserrat_28, C_GOLD);
-    lv_obj_align(net_lbl, LV_ALIGN_TOP_MID, 0, 110);
+    lv_obj_set_width(net_lbl, 440);
+    lv_label_set_long_mode(net_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_align(net_lbl, LV_ALIGN_TOP_LEFT, 28, 112);
 
     g_wifi_status_lbl = make_label(scr,
         g_wifi_connected ? "Connected" : "",
         &lv_font_montserrat_24, C_CORRECT);
-    lv_obj_align(g_wifi_status_lbl, LV_ALIGN_TOP_MID, 0, 158);
+    lv_obj_align(g_wifi_status_lbl, LV_ALIGN_TOP_LEFT, 28, 158);
 
     lv_obj_t* pass_lbl = make_label(scr, "Password", &lv_font_montserrat_24, C_SUBTEXT);
     lv_obj_align(pass_lbl, LV_ALIGN_TOP_LEFT, 28, 200);
 
     g_wifi_pass_ta = lv_textarea_create(scr);
-    lv_obj_set_size(g_wifi_pass_ta, SCR_W - 56, 64);
-    lv_obj_align(g_wifi_pass_ta, LV_ALIGN_TOP_MID, 0, 234);
+    lv_obj_set_size(g_wifi_pass_ta, 430, 64);
+    lv_obj_align(g_wifi_pass_ta, LV_ALIGN_TOP_LEFT, 28, 234);
     lv_textarea_set_one_line(g_wifi_pass_ta, true);
     lv_textarea_set_max_length(g_wifi_pass_ta, 63);
     lv_textarea_set_password_mode(g_wifi_pass_ta, true);
@@ -2018,7 +2024,7 @@ static void show_wifi_password_screen(const char* ssid) {
 
     lv_obj_t* conn_btn = lv_button_create(scr);
     lv_obj_set_size(conn_btn, 220, 72);
-    lv_obj_align(conn_btn, LV_ALIGN_TOP_MID, 0, 322);
+    lv_obj_align(conn_btn, LV_ALIGN_TOP_LEFT, 133, 322);
     lv_obj_set_style_bg_color(conn_btn, lv_color_hex(0x005FAD), 0);
     lv_obj_set_style_bg_color(conn_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
     lv_obj_set_style_radius(conn_btn, 18, 0);
@@ -2033,8 +2039,8 @@ static void show_wifi_password_screen(const char* ssid) {
     lv_obj_add_event_cb(conn_btn, on_wifi_connect_btn, LV_EVENT_CLICKED, NULL);
 
     g_wifi_kb = lv_keyboard_create(scr);
-    lv_obj_set_size(g_wifi_kb, SCR_W, 480);
-    lv_obj_align(g_wifi_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(g_wifi_kb, 536, 500);
+    lv_obj_align(g_wifi_kb, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_text_font(g_wifi_kb, &lv_font_montserrat_24, 0);
     lv_keyboard_set_textarea(g_wifi_kb, g_wifi_pass_ta);
 
@@ -2082,8 +2088,8 @@ static void launch_wifi(void) {
     lv_obj_align(g_wifi_scan_lbl, LV_ALIGN_TOP_LEFT, 20, 100);
 
     g_wifi_list = lv_list_create(scr);
-    lv_obj_set_size(g_wifi_list, SCR_W - 16, SCR_H - 248 - 80);
-    lv_obj_align(g_wifi_list, LV_ALIGN_TOP_MID, 0, 148);
+    lv_obj_set_size(g_wifi_list, SCR_W - 32, 430);
+    lv_obj_align(g_wifi_list, LV_ALIGN_TOP_MID, 0, 154);
     lv_obj_set_style_bg_color(g_wifi_list, lv_color_hex(C_HEADER), 0);
     lv_obj_set_style_border_width(g_wifi_list, 0, 0);
     lv_obj_set_style_radius(g_wifi_list, 12, 0);
@@ -2093,7 +2099,7 @@ static void launch_wifi(void) {
 
     lv_obj_t* rescan_btn = lv_button_create(scr);
     lv_obj_set_size(rescan_btn, 200, 60);
-    lv_obj_align(rescan_btn, LV_ALIGN_BOTTOM_MID, 0, -16);
+    lv_obj_align(rescan_btn, LV_ALIGN_TOP_RIGHT, -20, 94);
     lv_obj_set_style_bg_color(rescan_btn, lv_color_hex(C_BTN), 0);
     lv_obj_set_style_bg_color(rescan_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
     lv_obj_set_style_radius(rescan_btn, 14, 0);
@@ -2165,15 +2171,15 @@ static void show_question(void) {
     lv_obj_t* pl = make_label(hdr, prog, &lv_font_montserrat_24, C_SUBTEXT);
     lv_obj_align(pl, LV_ALIGN_RIGHT_MID, -88, 0);
 
-    // ── Middle content region (between header and answer stack) ──────────────
-    const int BTN_H = 110, BTN_GAP = 16, BTN_MARGIN = 30;
-    const int STACK_H = 3 * BTN_H + 2 * BTN_GAP;            // 362
-    const int STACK_TOP = SCR_H - STACK_H - 24;             // y of first button
-    const int MID_TOP = 88 + 16;
-    const int MID_H = STACK_TOP - MID_TOP - 16;
+    // Landscape lesson layout: prompt/visual on the left, three large answers
+    // on the right.  Nothing important is pushed below the fold.
+    const int BTN_H = 124, BTN_GAP = 18;
+    const int STACK_TOP = 118;
+    const int MID_TOP = 108;
+    const int MID_H = 462;
 
-    lv_obj_t* mid = make_col(scr, SCR_W - 40, MID_H, 24);
-    lv_obj_align(mid, LV_ALIGN_TOP_MID, 0, MID_TOP);
+    lv_obj_t* mid = make_col(scr, 470, MID_H, 22);
+    lv_obj_align(mid, LV_ALIGN_TOP_LEFT, 24, MID_TOP);
 
     lv_obj_t* q_lbl = lv_label_create(mid);
     lv_label_set_text(q_lbl, g_qd.prompt);
@@ -2181,7 +2187,7 @@ static void show_question(void) {
     lv_obj_set_style_text_color(q_lbl, lv_color_hex(C_CARD_TXT), 0);
     lv_obj_set_style_text_align(q_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(q_lbl, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(q_lbl, SCR_W - 60);
+    lv_obj_set_width(q_lbl, 440);
 
     if (g_qd.extra[0]) {
         lv_obj_t* ex = lv_label_create(mid);
@@ -2190,7 +2196,7 @@ static void show_question(void) {
         lv_obj_set_style_text_color(ex, lv_color_hex(C_GOLD), 0);
         lv_obj_set_style_text_align(ex, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(ex, LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(ex, SCR_W - 60);
+        lv_obj_set_width(ex, 440);
     }
 
     if (g_qd.vis_type == 1) {
@@ -2203,8 +2209,8 @@ static void show_question(void) {
     static const uint32_t BTN_COLS[3] = { 0x3A2A7A, 0x4A2F8C, 0x5A3A9E };
     for (int i = 0; i < 3; i++) {
         lv_obj_t* btn = lv_button_create(scr);
-        lv_obj_set_size(btn, SCR_W - 2*BTN_MARGIN, BTN_H);
-        lv_obj_set_pos(btn, BTN_MARGIN, STACK_TOP + i*(BTN_H+BTN_GAP));
+        lv_obj_set_size(btn, 470, BTN_H);
+        lv_obj_set_pos(btn, 530, STACK_TOP + i*(BTN_H+BTN_GAP));
         lv_obj_set_style_bg_color(btn, lv_color_hex(BTN_COLS[i]), 0);
         lv_obj_set_style_bg_color(btn, lv_color_hex(C_BTN_PRESS),
                                   LV_STATE_PRESSED);
@@ -2403,10 +2409,10 @@ static void show_pin(void) {
     lv_label_set_text(g_pin_display, "_  _  _  _");
     lv_obj_set_style_text_font(g_pin_display, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(g_pin_display, lv_color_hex(C_GOLD), 0);
-    lv_obj_align(g_pin_display, LV_ALIGN_TOP_MID, 0, 140);
+    lv_obj_align(g_pin_display, LV_ALIGN_TOP_MID, 0, 104);
 
     // 3×4 numpad centered with flex column of rows.
-    const int BW = 160, BH = 110, GAP = 16;
+    const int BW = 150, BH = 80, GAP = 14;
     lv_obj_t* pad = lv_obj_create(scr);
     int pad_w = 3*BW + 2*GAP;
     int pad_h = 4*BH + 3*GAP;
@@ -2415,7 +2421,7 @@ static void show_pin(void) {
     lv_obj_set_style_border_width(pad, 0, 0);
     lv_obj_set_style_pad_all(pad, 0, 0);
     lv_obj_remove_flag(pad, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(pad, LV_ALIGN_TOP_MID, 0, 260);
+    lv_obj_align(pad, LV_ALIGN_TOP_MID, 0, 174);
 
     int digits[12]       = {1,2,3,4,5,6,7,8,9,-1,0,-2};
     const char* labels[12] = {"1","2","3","4","5","6","7","8","9","<","0","X"};
@@ -2541,13 +2547,13 @@ static void show_ota(void) {
     lv_obj_t* ttl = make_label(hdr, "OTA Update", &lv_font_montserrat_32, C_GOLD);
     lv_obj_center(ttl);
 
-    lv_obj_t* col = make_col(scr, SCR_W - 60, 580, 20);
-    lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 104);
+    lv_obj_t* col = make_col(scr, 450, 450, 18);
+    lv_obj_align(col, LV_ALIGN_TOP_LEFT, 18, 112);
 
     make_label(col, "Server IP:", &lv_font_montserrat_28, C_SUBTEXT);
 
     g_ota_ip_ta = lv_textarea_create(col);
-    lv_obj_set_size(g_ota_ip_ta, SCR_W - 90, 80);
+    lv_obj_set_size(g_ota_ip_ta, 410, 72);
     lv_textarea_set_one_line(g_ota_ip_ta, true);
     lv_textarea_set_text(g_ota_ip_ta, g_ota_server_ip);
     lv_obj_set_style_text_font(g_ota_ip_ta, &lv_font_montserrat_28, 0);
@@ -2555,13 +2561,13 @@ static void show_ota(void) {
     g_ota_status_lbl = make_label(col, "Ready", &lv_font_montserrat_28, C_SUBTEXT);
     lv_obj_set_style_text_align(g_ota_status_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    make_btn(col, "Start OTA", SCR_W - 90, 100, C_CORRECT, on_ota_start, NULL);
-    make_btn(col, "Back",      SCR_W - 90, 90,  C_BTN,     on_ota_back,  NULL);
+    make_btn(col, "Start OTA", 410, 82, C_CORRECT, on_ota_start, NULL);
+    make_btn(col, "Back",      410, 72, C_BTN,     on_ota_back,  NULL);
 
     lv_obj_t* kb = lv_keyboard_create(scr);
     lv_keyboard_set_textarea(kb, g_ota_ip_ta);
-    lv_obj_set_size(kb, SCR_W, 320);
-    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(kb, 536, 500);
+    lv_obj_align(kb, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_text_font(kb, &lv_font_montserrat_28, 0);
 
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
@@ -2586,7 +2592,17 @@ static void show_admin(void) {
                                &lv_font_montserrat_32, C_GOLD);
     lv_obj_center(ttl);
 
-    lv_obj_t* col = make_col(scr, SCR_W - 60, SCR_H - 88, 14);
+    lv_obj_t* col = lv_obj_create(scr);
+    lv_obj_set_size(col, SCR_W - 64, SCR_H - 100);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(col, 0, 0);
+    lv_obj_set_style_pad_all(col, 0, 0);
+    lv_obj_set_style_pad_row(col, 14, 0);
+    lv_obj_set_layout(col, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scroll_dir(col, LV_DIR_VER);
     lv_obj_align(col, LV_ALIGN_TOP_MID, 0, 88);
 
     lv_obj_t* conn_heading = make_label(col, "CONNECTIONS",
@@ -3204,7 +3220,9 @@ extern "C" void app_main(void) {
     assert(disp);
 
     lvgl_port_lock(0);
-    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+    // The panel and enclosure are natively landscape (USB-C on the left in the
+    // desk stand), so avoid the former 270-degree software-rotated portrait UI.
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_0);
     lvgl_port_unlock();
 
     // GT911 touch
