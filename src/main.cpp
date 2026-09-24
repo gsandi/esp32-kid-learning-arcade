@@ -3246,7 +3246,6 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Display up — launching game");
 
     audio_init();
-    audio_play(SND_COMPLETE);  // short power-on check that the speaker path is alive
     preload_bg_image();
     art_init();
     art_image("icon_arcade", &g_icon_arcade);
