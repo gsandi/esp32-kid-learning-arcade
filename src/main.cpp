@@ -1022,9 +1022,13 @@ static void refresh_connectivity_ui(void) {
     const char* ble_text = "Bluetooth unavailable";
     uint32_t ble_color = 0x4A4068;
     bool ble_glow = false;
-    if (ble == ROCKY_BLE_CONNECTED) {
-        ble_text = "Connected to phone";
+    if (ble == ROCKY_BLE_SECURE) {
+        ble_text = "Paired and connected";
         ble_color = C_CORRECT;
+        ble_glow = true;
+    } else if (ble == ROCKY_BLE_CONNECTED) {
+        ble_text = "Securing phone link...";
+        ble_color = C_GOLD;
         ble_glow = true;
     } else if (ble == ROCKY_BLE_READY) {
         ble_text = "Ready for Rocky app";

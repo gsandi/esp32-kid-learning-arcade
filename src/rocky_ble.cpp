@@ -1,6 +1,7 @@
 #include "rocky_ble.h"
 #include "focus_apps.h"
 #include "voice_notes.h"
+#include "notification_alerts.h"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -47,6 +48,8 @@ enum AttrIndex {
     IDX_NOTE_SYNC_DECL,
     IDX_NOTE_SYNC_VAL,
     IDX_NOTE_SYNC_CCCD,
+    IDX_ALERT_DECL,
+    IDX_ALERT_VAL,
     IDX_INFO_DECL,
     IDX_INFO_VAL,
     IDX_COUNT,
@@ -68,6 +71,10 @@ static const uint8_t PROP_NOTES = ESP_GATT_CHAR_PROP_BIT_READ |
 static const uint8_t PROP_NOTE_SYNC = ESP_GATT_CHAR_PROP_BIT_READ |
                                       ESP_GATT_CHAR_PROP_BIT_WRITE |
                                       ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static const uint8_t PROP_ALERT = ESP_GATT_CHAR_PROP_BIT_WRITE;
+static constexpr uint16_t PERM_READ_PRIVATE = ESP_GATT_PERM_READ_ENCRYPTED;
+static constexpr uint16_t PERM_WRITE_PRIVATE = ESP_GATT_PERM_WRITE_ENCRYPTED;
+static constexpr uint16_t PERM_RW_PRIVATE = PERM_READ_PRIVATE | PERM_WRITE_PRIVATE;
 static uint8_t CCCD_OFF[2] = {0, 0};
 
 // ESP-IDF stores 128-bit UUIDs least-significant byte first.
@@ -92,6 +99,9 @@ static uint8_t UUID_NOTES[16] = {
 static uint8_t UUID_NOTE_SYNC[16] = {
     0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x09,0x00,0x1d,0x6b
 };
+static uint8_t UUID_ALERT[16] = {
+    0x10,0x5c,0x7a,0x0e,0x9d,0x1f,0x21,0x8c,0x3c,0x4b,0x4a,0x9f,0x0d,0x00,0x1d,0x6b
+};
 
 static uint8_t s_cfg[CFG_LEN] = {};
 static uint8_t s_state[STATE_LEN] = {};
@@ -109,7 +119,9 @@ static uint8_t s_last_notes[NOTES_LEN] = {0xFF};
 static uint8_t s_note_sync[NOTE_SYNC_LEN] = {};
 static uint8_t s_last_note_sync[NOTE_SYNC_LEN] = {0xFF};
 static uint8_t s_note_sync_write[NOTE_SYNC_WRITE_MAX] = {};
-static uint8_t s_info[] = "0.4.0";
+static constexpr size_t ALERT_WRITE_MAX = 96;
+static uint8_t s_alert_write[ALERT_WRITE_MAX] = {};
+static uint8_t s_info[] = "0.5.0"; // Adds the sender-only ALERT v1 characteristic.
 static uint16_t s_handles[IDX_COUNT] = {};
 static esp_gatt_if_t s_gatts_if = ESP_GATT_IF_NONE;
 static uint16_t s_conn_id = 0;
@@ -182,51 +194,58 @@ static const esp_gatts_attr_db_t GATT_DB[IDX_COUNT] = {
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
          sizeof(uint8_t), sizeof(PROP_CFG), (uint8_t*)&PROP_CFG}},
     [IDX_CFG_VAL] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_128, UUID_CONFIG, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_128, UUID_CONFIG, PERM_RW_PRIVATE,
          CFG_LEN, CFG_LEN, s_cfg}},
     [IDX_CFG_CCCD] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, PERM_RW_PRIVATE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
 
     [IDX_STATE_DECL] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
          sizeof(uint8_t), sizeof(PROP_STATE), (uint8_t*)&PROP_STATE}},
     [IDX_STATE_VAL] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_128, UUID_STATE, ESP_GATT_PERM_READ,
+        {ESP_UUID_LEN_128, UUID_STATE, PERM_READ_PRIVATE,
          STATE_LEN, STATE_LEN, s_state}},
     [IDX_STATE_CCCD] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, PERM_RW_PRIVATE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
 
     [IDX_LOG_DECL] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
          sizeof(uint8_t), sizeof(PROP_LOG), (uint8_t*)&PROP_LOG}},
     [IDX_LOG_VAL] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_128, UUID_LOG, ESP_GATT_PERM_READ,
+        {ESP_UUID_LEN_128, UUID_LOG, PERM_READ_PRIVATE,
          LOG_MAX, 1, s_log}},
     [IDX_LOG_CCCD] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, PERM_RW_PRIVATE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
 
     [IDX_NOTES_DECL] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
          sizeof(uint8_t), sizeof(PROP_NOTES), (uint8_t*)&PROP_NOTES}},
     [IDX_NOTES_VAL] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_128, UUID_NOTES, ESP_GATT_PERM_READ,
+        {ESP_UUID_LEN_128, UUID_NOTES, PERM_READ_PRIVATE,
          NOTES_LEN, NOTES_LEN, s_notes}},
     [IDX_NOTES_CCCD] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, PERM_RW_PRIVATE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
 
     [IDX_NOTE_SYNC_DECL] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
          sizeof(uint8_t), sizeof(PROP_NOTE_SYNC), (uint8_t*)&PROP_NOTE_SYNC}},
     [IDX_NOTE_SYNC_VAL] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_128, UUID_NOTE_SYNC, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_128, UUID_NOTE_SYNC, PERM_RW_PRIVATE,
          NOTE_SYNC_WRITE_MAX, NOTE_SYNC_LEN, s_note_sync_write}},
     [IDX_NOTE_SYNC_CCCD] = {{ESP_GATT_AUTO_RSP},
-        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CCCD, PERM_RW_PRIVATE,
          sizeof(CCCD_OFF), sizeof(CCCD_OFF), CCCD_OFF}},
+
+    [IDX_ALERT_DECL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
+         sizeof(uint8_t), sizeof(PROP_ALERT), (uint8_t*)&PROP_ALERT}},
+    [IDX_ALERT_VAL] = {{ESP_GATT_AUTO_RSP},
+        {ESP_UUID_LEN_128, UUID_ALERT, PERM_WRITE_PRIVATE,
+         ALERT_WRITE_MAX, 0, s_alert_write}},
 
     [IDX_INFO_DECL] = {{ESP_GATT_AUTO_RSP},
         {ESP_UUID_LEN_16, (uint8_t*)&UUID_CHAR_DECLARE, ESP_GATT_PERM_READ,
@@ -305,6 +324,23 @@ static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param) 
                 ESP_LOGE(TAG, "advertising failed: %d", param->adv_start_cmpl.status);
             }
             break;
+        case ESP_GAP_BLE_SEC_REQ_EVT:
+            // Attribute access initiates Android's implicit bond flow. Accept the
+            // request here; private values remain inaccessible until encryption.
+            esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
+            ESP_LOGI(TAG, "phone requested a secure link");
+            break;
+        case ESP_GAP_BLE_AUTH_CMPL_EVT:
+            if (param->ble_security.auth_cmpl.success) {
+                if (s_connected) s_public_state = ROCKY_BLE_SECURE;
+                ESP_LOGI(TAG, "phone bonded; encrypted link active (auth mode %u)",
+                         (unsigned)param->ble_security.auth_cmpl.auth_mode);
+            } else {
+                if (s_connected) s_public_state = ROCKY_BLE_CONNECTED;
+                ESP_LOGW(TAG, "phone bonding failed (reason 0x%02x)",
+                         param->ble_security.auth_cmpl.fail_reason);
+            }
+            break;
         default:
             break;
     }
@@ -376,6 +412,8 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                     if (end) *end = '\0';
                 }
                 voice_notes_request_sync(request, token);
+            } else if (param->write.handle == s_handles[IDX_ALERT_VAL]) {
+                notification_alerts_ingest(param->write.value, param->write.len);
             } else if (param->write.len == 2) {
                 bool enabled = get16(param->write.value) == 1;
                 if (param->write.handle == s_handles[IDX_CFG_CCCD]) s_cfg_notify = enabled;
@@ -416,6 +454,29 @@ void rocky_ble_init(void) {
     ESP_ERROR_CHECK(esp_bluedroid_attach_hci_driver(&operations));
     ESP_ERROR_CHECK(esp_bluedroid_init());
     ESP_ERROR_CHECK(esp_bluedroid_enable());
+
+    // Secure Connections + bonding with no display/input produces Just Works.
+    // This encrypts against passive observers and persists keys across reconnects,
+    // but does not authenticate the peer against an active MITM (see handoff).
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
+    esp_ble_io_cap_t io_cap = ESP_IO_CAP_NONE;
+    uint8_t key_size = 16;
+    uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint8_t require_sc = ESP_BLE_ONLY_ACCEPT_SPECIFIED_AUTH_ENABLE;
+    ESP_ERROR_CHECK(esp_ble_gap_set_security_param(
+        ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, sizeof(auth_req)));
+    ESP_ERROR_CHECK(esp_ble_gap_set_security_param(
+        ESP_BLE_SM_IOCAP_MODE, &io_cap, sizeof(io_cap)));
+    ESP_ERROR_CHECK(esp_ble_gap_set_security_param(
+        ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(key_size)));
+    ESP_ERROR_CHECK(esp_ble_gap_set_security_param(
+        ESP_BLE_SM_ONLY_ACCEPT_SPECIFIED_SEC_AUTH, &require_sc, sizeof(require_sc)));
+    ESP_ERROR_CHECK(esp_ble_gap_set_security_param(
+        ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(init_key)));
+    ESP_ERROR_CHECK(esp_ble_gap_set_security_param(
+        ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(rsp_key)));
+
     ESP_ERROR_CHECK(esp_ble_gatts_register_callback(gatts_cb));
     ESP_ERROR_CHECK(esp_ble_gap_register_callback(gap_cb));
     ESP_ERROR_CHECK(esp_ble_gatts_app_register(APP_ID));

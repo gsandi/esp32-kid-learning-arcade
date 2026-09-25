@@ -4164,3 +4164,60 @@ The "3D embossed option" you liked is Orb's **Imperial Signal** face (`assets/or
 
 **Fix:** draw all 60 teeth in one object with a custom draw callback:
 - Space teeth evenly along a rounded rectangle, giving about 37 p
+
+---
+
+## 2026-09-24 23:43:29
+
+**Prompt:** You are an independent senior reviewer. READ ONLY: do not edit files, do not run destructive commands. Review the Android app at /Users/sandi/workspace/startup/pomodoro_esp32_s3/android and ESP32-P4 firmware at /Users/sandi/workspace/startup/kid_arcade for a proposed selective notification tunnel from phone to device. The intended product: Android NotificationListenerService; explicit VIP/conversation/app allow rules; focus-aware delivery (urgent overlay, defer normal alerts); sender-only initially because Desk BLE is unbonded; later secure previews; no OTP forwarding; dedupe/rate-limit; phone retains decisions/logs. Inspect actual current code and give concrete actionable findings on: architecture, Android APIs and permission/onboarding pitfalls, notification parsing and stable identifiers, BLE protocol framing/MTU/reconnect/security, firmware/LVGL non-destructive overlay while timer runs, persistence/privacy, abuse cases, test plan, and what must block shipping. Critique these boundaries rather than accepting them. Cite exact file paths/symbols/line numbers where possible. Conclude with P0/P1/P2 prioritized implementation checklist. Do not modify anything.
+
+**Work done:** (completed 2026-09-24 23:46:43)
+
+# Notification tunnel review: firmware inspected, Android sources not read
+
+**Limits of this review:** the harness refused `Read` on `/Users/sandi/workspace/startup/pomodoro_esp32_s3/android/**`, and I did not work around that with `cat`. Android findings below rest on the file inventory from `find` and on platform knowledge. They are not code-verified. The inventory shows the app has `MainActivity`, `RockyClient` (906 lines), `Protocol` (391), `RockyPermissions` (42), `FirmwareServer` (604) and `SessionHistory`. It has **no NotificationListenerService, policy engine or rule store yet**, so this is a greenfield feature on the Android side. Grant read access and I will redo those parts against real code. Firmware findings are all verified.
+
+## Firmware findings
+
+**F1. The unauthenticated write surface is already exploitable, and the tunnel would sit on it.**
+- `rocky_ble.cpp:368-379` accepts `host\ntoken` from any BLE client and calls `voice_notes_request_sync`.
+- `voice_notes.cpp:868-888` stores the host. `upload_file` (`:278`, `:300`) then POSTs every voice note over plaintext HTTP to that host. The token is optional (`:300`).
+- Any phone within BLE range can therefore make the device upload a 6-year-old's recordings to an arbitrary host.
+- No security is configured. There is no `esp_ble_gap_set_security_param`, and permissions are plain `ESP_GATT_PERM_WRITE` (`:185`, `:225`). `CONFIG_BT_SMP_ENABLE=y` is already set (`sdkconfig.defaults:91-92`), so bonding is feasible.
+- Your "sender-only because unbonded" boundary is too weak. The main risk is spoofing, not disclosure. Anyone can write a fake "Mom" overlay to a child's desk device. Even sender-only data reveals who contacts the user and when.
+- **Recommendation:** gate the new characteristic on an encrypted, MITM-protected write (`ESP_GATT_PERM_WRITE_ENC_MITM`), with a passkey shown on the P4 screen.
+
+**F2. Adding a characteristic will hit Android's stale GATT cache.**
+- `ESP_GATTS_ROBUST_CACHING` is off (`sdkconfig.esp32p4:1430`). The service-changed indication (`:1426`) only reaches bonded peers, and the phone is unbonded.
+- `s_info = "0.4.0"` (`rocky_ble.cpp:112`) is the only version signal.
+- Your recent fix 5e69426 already dealt with a stale-cache reconnect. A new characteristic will cause the same failure.
+- **Recommendation:** add a capabilities read and have the phone call `refresh()` or bond. Bump the info string with the protocol version.
+
+**F3. The write handler has gaps the tunnel would inherit.**
+- Prepared writes are dropped at `rocky_ble.cpp:362`, and `ESP_GATTS_EXEC_WRITE_EVT` is not handled, so long writes vanish silently.
+- MTU is set with `esp_ble_gatt_set_local_mtu(185)` after `app_register` (`:422`). There is no `ESP_GATTS_MTU_EVT` handler, so the firmware never learns the negotiated MTU.
+- The existing LOG notify (101 bytes) already exceeds a default-MTU payload.
+- Framing is newline-delimited text (`:370-378`), which invites injection.
+- **Recommendation for the tunnel:**
+  - Use a binary frame: `ver, type, seq, flags, ttl_s, prio, kind, icon, len, utf8 label`.
+  - Cap the label at about 24 bytes and refuse frames when MTU is below what they need.
+  - Use write-with-response and ack on a status characteristic. The current pattern is notify without confirm and drops on congestion (`ESP_GATTS_CONGEST_EVT` unhandled), so it cannot carry alerts.
+
+**F4. A rogue device can squat the single connection.**
+- Advertising restarts only when `!s_connected` (`:283`), and `ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY` with a public address is used (`:273-280`).
+- Any device that connects and idles blocks the real phone and keeps the device trackable.
+- **Recommendation:** add an idle timeout, use a resolvable private address, and filter to bonded peers after pairing.
+
+**F5. Possible leak of the sync host and token through readback.**
+- The backing store for the note-sync characteristic (`s_note_sync_write`, `:226`) is also its readable value. The written `host\ntoken` may be r
+
+## 2026-09-24 — sender-only phone alert tunnel (firmware)
+
+- Added write-with-response GATT characteristic `6b1d000d-9f4a-4b3c-8c21-1f9d0e7a5c10` and bumped the device info version to `0.5.0`.
+- Added a strict 96-byte maximum v1 parser shared with the Android implementation: flags/category, stable event ID, UTF-8 app label and sender only; no message body.
+- Added a four-item queue, recent-ID dedupe and four-alerts-per-30-second limiter. Non-interrupting alerts wait while the Focus screen is visible.
+- Added an eight-second, silent LVGL top-layer card with a Focus-safe landscape position and tap-to-dismiss.
+- Protected all private CONFIG/STATE/LOG/NOTES/NOTE_SYNC/ALERT values and CCCDs with LE Secure Connections encryption and persistent Just Works bonding; service declarations and INFO remain discoverable. Settings now distinguishes a physical connection from a secured paired connection.
+- Reused one hidden top-layer alert card instead of allocating and deleting LVGL objects for every notification.
+- Kept card allocation and visibility as separate state so hiding the reused card cannot block later queued alerts.
+- Added and ran host parser coverage for Unicode, invalid UTF-8, control characters, invalid flags/IDs and length mismatches; `pio run` passes.

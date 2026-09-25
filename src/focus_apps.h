@@ -16,6 +16,10 @@ void focus_show_stopwatch(lv_event_cb_t home_cb);
 bool focus_pomodoro_running(void);
 bool focus_stopwatch_running(void);
 
+// True only while the Pomodoro screen is the active LVGL screen. Used by
+// transient overlays to avoid covering the landscape countdown.
+bool focus_pomodoro_visible(void);
+
 // Existing Rocky companion-app protocol. Durations are focus, sprint, break and
 // long break in minutes. State bytes use the original PomodoroState ordinals.
 void focus_ble_get_config(uint16_t out_minutes[4]);

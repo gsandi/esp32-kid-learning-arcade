@@ -9,6 +9,7 @@
 #include "art_store.h"
 #include "rocky.h"
 #include "rocky_ble.h"
+#include "notification_alerts.h"
 #include "voice_notes.h"
 #include "esp_lvgl_port.h"
 #include "esp_timer.h"
@@ -105,6 +106,10 @@ bool focus_pomodoro_running(void) {
 }
 
 bool focus_stopwatch_running(void) { return s_sw_running; }
+
+bool focus_pomodoro_visible(void) {
+    return s_pomo_scr && lv_screen_active() == s_pomo_scr;
+}
 
 void focus_ble_get_config(uint16_t out[4]) {
     out[0] = s_focus_minutes;
@@ -472,6 +477,7 @@ static void service_cb(lv_timer_t*) {
     sw_refresh();
     rocky_poll();
     rocky_ble_poll();
+    notification_alerts_poll();
     voice_notes_poll();
 }
 

@@ -5,7 +5,8 @@ enum RockyBleState {
     ROCKY_BLE_DISABLED = 0,
     ROCKY_BLE_STARTING,
     ROCKY_BLE_READY,
-    ROCKY_BLE_CONNECTED,
+    ROCKY_BLE_CONNECTED, // Physical link established; encryption still pending.
+    ROCKY_BLE_SECURE,    // Bonded and encrypted phone link.
 };
 
 // Starts the GATT server used by the existing org.saga.rocky Android app.
