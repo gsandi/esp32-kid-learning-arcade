@@ -132,8 +132,19 @@ static void on_screen_delete(lv_event_t*) {
         s_tick = nullptr;
     }
     s_screen = nullptr;
-    s_local = Face{};
-    s_india = Face{};
+    // LV_EVENT_DELETE for the parent is delivered before LVGL has finished
+    // deleting all image/line children.  Those children retain pointers to the
+    // descriptor and point arrays embedded in Face, so clearing the whole
+    // struct here corrupts their teardown and eventually poisons LVGL's TLSF
+    // heap.  Only invalidate object references; keep backing storage intact.
+    s_local.root = s_local.date = nullptr;
+    s_local.hour.edge = s_local.hour.fill = nullptr;
+    s_local.minute.edge = s_local.minute.fill = nullptr;
+    s_local.second.edge = s_local.second.fill = nullptr;
+    s_india.root = s_india.date = nullptr;
+    s_india.hour.edge = s_india.hour.fill = nullptr;
+    s_india.minute.edge = s_india.minute.fill = nullptr;
+    s_india.second.edge = s_india.second.fill = nullptr;
 }
 
 static void build_face(Face& face, int x, const char* art_name, const char* zone,

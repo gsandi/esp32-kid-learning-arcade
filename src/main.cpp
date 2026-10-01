@@ -1353,7 +1353,7 @@ static void show_clock(lv_timer_t*) {
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, clock_dismiss, LV_EVENT_CLICKED, NULL);
     g_screensaver_scr = scr;
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 600, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -1500,7 +1500,7 @@ static void show_home(void) {
     g_home_timer = lv_timer_create(home_clock_cb, 1000, NULL);
     idle_reset();
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -1548,7 +1548,7 @@ static void launch_arcade(void) {
     make_game_card(col, "READING", "Letters   Words   Rhymes",
                    C_READ, on_read_tap);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -1870,7 +1870,7 @@ static void launch_settings(void) {
     lv_obj_set_style_text_color(star_sub, lv_color_hex(C_SUBTEXT), 0);
     lv_obj_align(star_sub, LV_ALIGN_CENTER, 0, 24);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     watch_connectivity(scr);
     lvgl_port_unlock();
 }
@@ -2068,7 +2068,7 @@ static void show_wifi_password_screen(const char* ssid) {
     lv_obj_set_style_text_font(g_wifi_kb, &lv_font_montserrat_24, 0);
     lv_keyboard_set_textarea(g_wifi_kb, g_wifi_pass_ta);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -2136,7 +2136,7 @@ static void launch_wifi(void) {
     lv_obj_add_event_cb(rescan_btn, on_wifi_scan_again, LV_EVENT_CLICKED, NULL);
 
     g_scan_poll_timer = lv_timer_create(on_scan_poll, 500, NULL);
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 
     wifi_do_scan();
@@ -2255,7 +2255,7 @@ static void show_question(void) {
 
     add_home_button(scr);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -2322,7 +2322,7 @@ static void show_feedback(void) {
 
     add_home_button(scr);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -2376,7 +2376,7 @@ static void show_round_complete(void) {
              on_play_again, NULL);
     make_btn(col, "Home", SCR_W - 80, 90, C_BTN, on_home, NULL);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -2458,7 +2458,7 @@ static void show_pin(void) {
         lv_obj_set_pos(btn, col*(BW+GAP), row*(BH+GAP));
     }
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -2678,7 +2678,7 @@ static void show_ota(void) {
     lv_obj_align(kb, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_text_font(kb, &lv_font_montserrat_28, 0);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 
@@ -2802,7 +2802,7 @@ static void show_admin(void) {
     make_btn(col, "Home", SCR_W - 90, 76, C_BTN,
              on_admin_home, NULL);
 
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     watch_connectivity(scr);
     lvgl_port_unlock();
 }

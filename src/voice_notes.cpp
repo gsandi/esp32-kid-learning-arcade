@@ -815,7 +815,7 @@ void voice_notes_show(lv_event_cb_t home_cb) {
     rebuild_library();
 
     refresh_ui();
-    lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     lvgl_port_unlock();
 }
 

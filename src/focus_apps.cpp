@@ -619,7 +619,7 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
 
     pomo_refresh();
     rocky_poll();
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     ESP_LOGI(TAG, "Rocky Focus screen loaded");
     lvgl_port_unlock();
 }
@@ -703,7 +703,7 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
     lv_obj_align(reset, LV_ALIGN_BOTTOM_RIGHT, -36, -62);
 
     sw_refresh();
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT, 250, 0, true);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     ESP_LOGI(TAG, "Stopwatch screen loaded");
     lvgl_port_unlock();
 }
