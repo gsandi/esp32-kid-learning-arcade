@@ -95,6 +95,25 @@ static constexpr uint8_t POMO_TICK_COUNT = 60;
 static lv_obj_t* s_pomo_tick_frame = nullptr;
 static int8_t s_pomo_last_tick = -1;
 static int8_t s_pomo_last_tick_state = -1;
+static lv_event_cb_t s_focus_home_cb = nullptr;
+
+// The log is a paged view of s_session_log, also used by BLE. Four reusable
+// rows keep screen swaps comfortably inside LVGL's fixed 64 KiB heap.
+static constexpr uint8_t LOG_ROWS = 4;
+static lv_obj_t* s_log_scr = nullptr;
+static lv_obj_t* s_log_rows[LOG_ROWS] = {};
+static lv_obj_t* s_log_times[LOG_ROWS] = {};
+static lv_obj_t* s_log_outcomes[LOG_ROWS] = {};
+static lv_obj_t* s_log_focused[LOG_ROWS] = {};
+static lv_obj_t* s_log_planned[LOG_ROWS] = {};
+static lv_obj_t* s_log_summary = nullptr;
+static lv_obj_t* s_log_page_label = nullptr;
+static lv_obj_t* s_log_prev = nullptr;
+static lv_obj_t* s_log_next = nullptr;
+static lv_obj_t* s_log_empty = nullptr;
+static lv_obj_t* s_log_columns = nullptr;
+static uint8_t s_log_page = 0;
+static int s_log_last_count = -1;
 
 // Stopwatch screen refs.
 static lv_obj_t* s_sw_scr = nullptr;
@@ -117,7 +136,8 @@ bool focus_pomodoro_running(void) {
 bool focus_stopwatch_running(void) { return s_sw_running; }
 
 bool focus_pomodoro_visible(void) {
-    return s_pomo_scr && lv_screen_active() == s_pomo_scr;
+    lv_obj_t* active = lv_screen_active();
+    return (s_pomo_scr && active == s_pomo_scr) || (s_log_scr && active == s_log_scr);
 }
 
 void focus_ble_get_config(uint16_t out[4]) {
@@ -286,12 +306,154 @@ static void format_clock(char* out, size_t n, uint32_t sec, bool hours) {
     else snprintf(out, n, "%02lu:%02lu", (unsigned long)m, (unsigned long)s);
 }
 
+static void log_refresh(void) {
+    if (!s_log_scr || lv_screen_active() != s_log_scr) return;
+    const uint8_t count = s_session_log_count;
+    const uint8_t pages = count ? (count + LOG_ROWS - 1) / LOG_ROWS : 1;
+    if (s_log_page >= pages) s_log_page = pages - 1;
+    uint16_t focused = 0;
+    unsigned completed = 0;
+    for (uint8_t i = 0; i < count; ++i) {
+        focused += s_session_log[i].focused_min;
+        if (s_session_log[i].kind == 0) ++completed;
+    }
+    lv_label_set_text_fmt(s_log_summary, "%u min focused     %u completed     %u abandoned",
+                          (unsigned)focused, completed, (unsigned)count - completed);
+    for (uint8_t row = 0; row < LOG_ROWS; ++row) {
+        const uint8_t offset = s_log_page * LOG_ROWS + row;
+        if (offset >= count) {
+            lv_obj_add_flag(s_log_rows[row], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_remove_flag(s_log_rows[row], LV_OBJ_FLAG_HIDDEN);
+        const SessionEntry& entry = s_session_log[count - 1 - offset];
+        lv_label_set_text_fmt(s_log_times[row], "%02u:%02u", entry.hour, entry.minute);
+        lv_label_set_text(s_log_outcomes[row], entry.kind == 0 ? "Completed" : "Abandoned");
+        lv_obj_set_style_text_color(s_log_outcomes[row],
+            lv_color_hex(entry.kind == 0 ? desk_ui::SUCCESS : MUTED), 0);
+        lv_label_set_text_fmt(s_log_focused[row], "%u min", entry.focused_min);
+        lv_label_set_text_fmt(s_log_planned[row], "%u min", entry.planned_min);
+    }
+    if (count) {
+        lv_obj_add_flag(s_log_empty, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_log_columns, LV_OBJ_FLAG_HIDDEN);
+        const unsigned first = s_log_page * LOG_ROWS + 1;
+        const unsigned last = first + LOG_ROWS - 1 > count ? count : first + LOG_ROWS - 1;
+        lv_label_set_text_fmt(s_log_page_label, "%u - %u of %u", first, last, (unsigned)count);
+    } else {
+        lv_obj_remove_flag(s_log_empty, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_log_columns, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(s_log_page_label, "No saved sessions");
+    }
+    if (s_log_page == 0) lv_obj_add_state(s_log_prev, LV_STATE_DISABLED);
+    else lv_obj_remove_state(s_log_prev, LV_STATE_DISABLED);
+    if (s_log_page + 1 >= pages) lv_obj_add_state(s_log_next, LV_STATE_DISABLED);
+    else lv_obj_remove_state(s_log_next, LV_STATE_DISABLED);
+    s_log_last_count = count;
+}
+
+static void on_log_back(lv_event_t*) { focus_show_pomodoro(s_focus_home_cb); }
+
+static void on_log_page(lv_event_t* e) {
+    const int direction = (int)(intptr_t)lv_event_get_user_data(e);
+    const int next = (int)s_log_page + direction;
+    if (next < 0 || next * LOG_ROWS >= s_session_log_count) return;
+    s_log_page = (uint8_t)next;
+    log_refresh();
+}
+
+static void log_screen_deleted(lv_event_t*) {
+    s_log_scr = s_log_summary = s_log_page_label = nullptr;
+    s_log_prev = s_log_next = s_log_empty = s_log_columns = nullptr;
+    for (uint8_t i = 0; i < LOG_ROWS; ++i) {
+        s_log_rows[i] = s_log_times[i] = s_log_outcomes[i] = nullptr;
+        s_log_focused[i] = s_log_planned[i] = nullptr;
+    }
+    s_log_last_count = -1;
+}
+
+static void on_focus_log(lv_event_t*) {
+    lvgl_port_lock(0);
+    lv_obj_t* scr = desk_ui::screen();
+    s_log_scr = scr;
+    s_log_page = 0;
+    lv_obj_add_event_cb(scr, log_screen_deleted, LV_EVENT_DELETE, nullptr);
+    desk_ui::header(scr, "FOCUS LOG", "SAVED SESSIONS", on_log_back);
+    s_log_summary = label(scr, "", &lv_font_montserrat_28, TEXT);
+    lv_obj_set_pos(s_log_summary, 32, 104);
+    lv_obj_t* note = label(scr, "Newest first  /  Same history shared with the Rocky app",
+                           &lv_font_montserrat_18, MUTED);
+    lv_obj_set_pos(note, 34, 152);
+
+    s_log_columns = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_log_columns);
+    lv_obj_set_pos(s_log_columns, 24, 202);
+    lv_obj_set_size(s_log_columns, 976, 28);
+    desk_ui::make_inert(s_log_columns);
+    const char* headings[] = {"STARTED", "OUTCOME", "FOCUSED", "PLANNED"};
+    const int columns[] = {16, 196, 568, 788};
+    for (int i = 0; i < 4; ++i) {
+        lv_obj_t* heading = label(s_log_columns, headings[i], &lv_font_montserrat_18, MUTED);
+        lv_obj_set_pos(heading, columns[i], 0);
+    }
+    for (uint8_t i = 0; i < LOG_ROWS; ++i) {
+        lv_obj_t* row = desk_ui::panel(scr, 24, 236 + i * 66, 976, 60, false);
+        lv_obj_set_style_radius(row, 8, 0);
+        desk_ui::make_inert(row);
+        s_log_rows[i] = row;
+        lv_obj_t** fields[] = {&s_log_times[i], &s_log_outcomes[i],
+                               &s_log_focused[i], &s_log_planned[i]};
+        for (int j = 0; j < 4; ++j) {
+            *fields[j] = label(row, "", &lv_font_montserrat_24, TEXT);
+            lv_obj_set_pos(*fields[j], columns[j], 15);
+        }
+    }
+    s_log_empty = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_log_empty);
+    lv_obj_set_size(s_log_empty, 760, 220);
+    lv_obj_set_pos(s_log_empty, 132, 250);
+    desk_ui::make_inert(s_log_empty);
+    lv_obj_t* empty_title = label(s_log_empty, "No sessions yet", &lv_font_montserrat_28, TEXT);
+    lv_obj_align(empty_title, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_t* empty_hint = label(s_log_empty, "Finish or end a focus block to see it here.",
+                                 &lv_font_montserrat_20, MUTED);
+    lv_obj_align(empty_hint, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_t* empty_back = button(s_log_empty, "Back to Focus", 248, 64, ORANGE, on_log_back);
+    lv_obj_align(empty_back, LV_ALIGN_BOTTOM_MID, 0, -24);
+
+    s_log_prev = desk_ui::button(scr, "<  Newer", 168, 56,
+        desk_ui::ButtonKind::Secondary, on_log_page, (void*)(intptr_t)-1);
+    lv_obj_set_pos(s_log_prev, 24, 526);
+    s_log_next = desk_ui::button(scr, "Older  >", 168, 56,
+        desk_ui::ButtonKind::Secondary, on_log_page, (void*)(intptr_t)1);
+    lv_obj_set_pos(s_log_next, 832, 526);
+    s_log_page_label = label(scr, "", &lv_font_montserrat_20, MUTED);
+    lv_obj_set_width(s_log_page_label, 400);
+    lv_obj_set_style_text_align(s_log_page_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_log_page_label, 312, 544);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    log_refresh();
+    lvgl_port_unlock();
+}
+
 // A full lap is one minute.  The old rectangular countdown frame made Focus
 // feel like a draining box.  Sixty radial marks now live in the recessed track
 // of the generated brass instrument; one extinguishes each second.
 // Tick coordinates are local to the 466x466 instrument object.
-static constexpr int FOCUS_CX = 233;
-static constexpr int FOCUS_CY = 233;
+static constexpr int FOCUS_ART_X = 25;
+static constexpr int FOCUS_ART_Y = 90;
+static constexpr int FOCUS_ART_SIZE = 466;
+struct FocusTrack {
+    int cx;
+    int cy;
+    float major_inner;
+    float minor_inner;
+    float outer;
+};
+// Measured against the actual 466px assets. Their annuli are neither the same
+// radius nor centered at (233,233); keep rounded line caps clear of both lips.
+static constexpr FocusTrack CLASSIC_TRACK = {233, 228, 182.0f, 187.0f, 199.0f};
+static constexpr FocusTrack BRASS_TRACK = {232, 224, 168.0f, 173.0f, 185.0f};
 static constexpr float PI_F = 3.14159265358979323846f;
 
 static uint8_t pomo_tick_elapsed(void) {
@@ -307,9 +469,15 @@ static void draw_pomo_ticks(lv_event_t* e) {
     bool active = s_pomo != POMO_READY;
     bool paused = pomo_is_paused();
     bool complete = s_pomo == POMO_FOCUS_DONE || s_pomo == POMO_BREAK_DONE;
+    const bool classic = s_focus_skin == FOCUS_CLASSIC && s_bg_focus_classic.data;
+    const FocusTrack& track = classic ? CLASSIC_TRACK : BRASS_TRACK;
+    lv_area_t bounds;
+    lv_obj_get_coords((lv_obj_t*)lv_event_get_target(e), &bounds);
+    // LVGL draw descriptors use display coordinates, not object-local ones.
+    const int cx = bounds.x1 + track.cx;
+    const int cy = bounds.y1 + track.cy;
 
     for (uint8_t i = 0; i < POMO_TICK_COUNT; ++i) {
-        const bool classic = s_focus_skin == FOCUS_CLASSIC;
         const uint32_t active_color = classic ? 0xF4F7FA : 0xFFF0B0;
         const uint32_t dim_color = classic ? 0x4E5964 : 0x6F4718;
         const uint32_t head_color = classic ? 0xD7F1FF : 0xFFFFFF;
@@ -321,20 +489,20 @@ static void draw_pomo_ticks(lv_event_t* e) {
 
         const bool major = (i % 5) == 0;
         const float angle = ((float)i * 2.0f * PI_F / POMO_TICK_COUNT) - PI_F / 2.0f;
-        const float inner = major ? 176.0f : 181.0f;
-        const float outer = 199.0f;
+        const float inner = major ? track.major_inner : track.minor_inner;
+        const float outer = track.outer;
 
         lv_draw_line_dsc_t d;
         lv_draw_line_dsc_init(&d);
-        d.p1.x = (lv_value_precise_t)lroundf(FOCUS_CX + cosf(angle) * inner);
-        d.p1.y = (lv_value_precise_t)lroundf(FOCUS_CY + sinf(angle) * inner);
-        d.p2.x = (lv_value_precise_t)lroundf(FOCUS_CX + cosf(angle) * outer);
-        d.p2.y = (lv_value_precise_t)lroundf(FOCUS_CY + sinf(angle) * outer);
+        d.p1.x = (lv_value_precise_t)lroundf(cx + cosf(angle) * inner);
+        d.p1.y = (lv_value_precise_t)lroundf(cy + sinf(angle) * inner);
+        d.p2.x = (lv_value_precise_t)lroundf(cx + cosf(angle) * outer);
+        d.p2.y = (lv_value_precise_t)lroundf(cy + sinf(angle) * outer);
         d.color = lv_color_hex(complete ? active_color
                                        : (head ? head_color
                                                : (i >= elapsed ? active_color : dim_color)));
         d.opa = opa;
-        d.width = major ? 7 : 4;
+        d.width = major ? 5 : 3;
         d.round_start = 1;
         d.round_end = 1;
         lv_draw_line(layer, &d);
@@ -343,8 +511,8 @@ static void draw_pomo_ticks(lv_event_t* e) {
 
 static void create_pomo_ticks(lv_obj_t* parent) {
     s_pomo_tick_frame = lv_obj_create(parent);
-    lv_obj_set_size(s_pomo_tick_frame, 466, 466);
-    lv_obj_set_pos(s_pomo_tick_frame, 25, 90);
+    lv_obj_set_size(s_pomo_tick_frame, FOCUS_ART_SIZE, FOCUS_ART_SIZE);
+    lv_obj_set_pos(s_pomo_tick_frame, FOCUS_ART_X, FOCUS_ART_Y);
     lv_obj_set_style_bg_opa(s_pomo_tick_frame, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_pomo_tick_frame, 0, 0);
     lv_obj_set_style_pad_all(s_pomo_tick_frame, 0, 0);
@@ -370,6 +538,11 @@ static void pomo_refresh(void) {
 
     char time_buf[16];
     format_clock(time_buf, sizeof(time_buf), s_pomo_remaining, false);
+    // H:MM:SS needs a smaller face to remain within the Brass aperture too.
+    const bool show_hours = s_pomo_remaining >= 3600;
+    lv_obj_set_style_text_font(s_pomo_digits,
+        show_hours ? &lv_font_montserrat_32 : &lv_font_montserrat_48, 0);
+    lv_obj_set_y(s_pomo_digits, show_hours ? 400 : 392);
     lv_label_set_text(s_pomo_digits, time_buf);
 
     const char* status = "READY TO FOCUS";
@@ -455,6 +628,7 @@ static void sw_refresh(void) {
 static void service_cb(lv_timer_t*) {
     pomo_update_model();
     pomo_refresh();
+    if (s_log_last_count != s_session_log_count) log_refresh();
     sw_refresh();
     rocky_poll();
     rocky_ble_poll();
@@ -583,6 +757,7 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     ESP_LOGI(TAG, "opening Rocky Focus");
     pomo_update_model();
     lvgl_port_lock(0);
+    s_focus_home_cb = home_cb;
     lv_obj_t* scr = lv_obj_create(nullptr);
     style_screen(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
@@ -594,15 +769,15 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     if (skin) {
         s_pomo_skin_image = lv_image_create(scr);
         lv_image_set_src(s_pomo_skin_image, skin);
-        lv_obj_set_pos(s_pomo_skin_image, 25, 90);
+        lv_obj_set_pos(s_pomo_skin_image, FOCUS_ART_X, FOCUS_ART_Y);
         desk_ui::make_inert(s_pomo_skin_image);
     }
     create_pomo_ticks(scr);
 
     // Deliberately quiet: gaze, countdown, progress, controls. Nothing else.
-    // Instrument and character occupy the left half; time and controls own the
-    // right half.  The split remains stable while the session is running.
-    lv_obj_t* face = rocky_create(scr, 258, 378, 0.82f);
+    // Instrument, complete character and countdown share the left half;
+    // choices and session controls keep a stable place on the right.
+    lv_obj_t* face = rocky_create(scr, 258, 366, 0.74f);
     rocky_set_mouth_visible(true);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
@@ -618,14 +793,14 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
 
     // Rocky, status and countdown are one instrument again. The right half is
     // reserved for choices and in-session controls rather than duplicating time.
-    s_pomo_status = label(scr, "", &lv_font_montserrat_20, TEXT);
+    s_pomo_status = label(scr, "", &lv_font_montserrat_18, TEXT);
     lv_obj_set_width(s_pomo_status, 300);
     lv_obj_set_style_text_align(s_pomo_status, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_pomo_status, 108, 166);
+    lv_obj_set_pos(s_pomo_status, 108, 208);
     s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_48, TEXT);
     lv_obj_set_width(s_pomo_digits, 260);
     lv_obj_set_style_text_align(s_pomo_digits, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(s_pomo_digits, 128, 416);
+    lv_obj_set_pos(s_pomo_digits, 128, 392);
     s_pomo_hint = label(scr, "", &lv_font_montserrat_20, MUTED);
     lv_obj_set_width(s_pomo_hint, 430);
     lv_obj_set_style_text_align(s_pomo_hint, LV_TEXT_ALIGN_CENTER, 0);
@@ -636,6 +811,9 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
         136, 48, desk_ui::ButtonKind::Secondary, on_focus_skin_toggle, nullptr);
     lv_obj_align(skin_button, LV_ALIGN_TOP_RIGHT, -18, 13);
     s_pomo_skin_label = lv_obj_get_child(skin_button, 0);
+    lv_obj_t* log_button = desk_ui::button(scr, "Focus log", 156, 48,
+        desk_ui::ButtonKind::Secondary, on_focus_log, nullptr);
+    lv_obj_align(log_button, LV_ALIGN_TOP_RIGHT, -170, 13);
 
     s_pomo_presets = lv_obj_create(scr);
     lv_obj_set_size(s_pomo_presets, 480, 220);
@@ -671,9 +849,9 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_t* cancel = button(s_pomo_controls, "End", 126, 88, PANEL, on_pomo_cancel);
     lv_obj_align(cancel, LV_ALIGN_RIGHT_MID, -8, 0);
 
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     pomo_refresh();
     rocky_poll();
-    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
     ESP_LOGI(TAG, "Rocky Focus screen loaded");
     lvgl_port_unlock();
 }
