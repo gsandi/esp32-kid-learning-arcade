@@ -1,19 +1,18 @@
-// clock_faces.cpp — local Orb Imperial + India steampunk faces, side by side on 1024x600.
+// clock_faces.cpp — embossed local + India instrument faces, side by side on 1024x600.
 //
 // Port notes (LVGL 8.4 -> 9, two 466x466 faces -> 1024x600 landscape):
-//   * Each face draws into its own 466x466 RGB565 canvas exactly as Orb did, so every
-//     coordinate in the face code is still dial-local with the centre at (233,233). The
-//     canvases are placed on the screen; nothing here knows about the panel size except
-//     the two placement constants below.
+//   * Each face draws into its own 466x466 RGB565 canvas with dial-local coordinates
+//     and the centre at (233,233). The canvases are placed on the screen; nothing here
+//     knows about the panel size except the two placement constants below.
 //   * lv_canvas_draw_* is gone in LVGL 9. Drawing goes through a layer
 //     (lv_canvas_init_layer / lv_draw_* / lv_canvas_finish_layer). The polygon hand
 //     becomes two triangles.
 //   * Both faces use code-drawn hands.  The embossed depth stays baked into each dial,
 //     while the small moving geometry avoids full-image transforms and extra PSRAM.
 //
-// Attribution: dial and hand art, face geometry and the drawing routines are from
-// Ziplock78/orb-os, MIT, Copyright (c) 2026 Quique Tortosa and Zion Brock.
-// See src/orb/LICENSE.orb-os.
+// Attribution: hand geometry and the original drawing approach are adapted from
+// Ziplock78/orb-os, MIT, Copyright (c) 2026 Quique Tortosa and Zion Brock. The
+// embossed dial plates are project artwork. See src/orb/LICENSE.orb-os.
 
 #include "clock_faces.h"
 #include "esp_heap_caps.h"
@@ -23,7 +22,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "art_store.h"                 // dial bitmaps live in the art partition (assets/orb/dial_*.h are the source)
+#include "art_store.h"                 // dial bitmaps live in the mapped art partition
 
 static const char* TAG = "clock_faces";
 
@@ -42,7 +41,9 @@ static constexpr float DEG2RAD = 3.14159265358979f / 180.0f;
 
 // Date window shared by the two instrument faces.
 static constexpr int   DATE_WIN_X    = 233;
-static constexpr int   DATE_WIN_Y    = 328;
+// Both generated plates have a deeply recessed date aperture centred at six.
+// The date remains live LVGL text rather than being baked into the artwork.
+static constexpr int   DATE_WIN_Y    = 389;
 
 // ── palette (Orb's) ───────────────────────────────────────────────────────────
 #define COL_HAND       lv_color_make(0xE6, 0xB8, 0x58)   // steampunk polished brass
@@ -201,7 +202,7 @@ static void draw_steampunk(const struct tm* ti) {
     lv_layer_t L;
     lv_canvas_init_layer(f.canvas, &L);
 
-    draw_text(&L, 143, 91, 180, &lv_font_montserrat_20, COL_DATE,
+    draw_text(&L, 143, 112, 180, &lv_font_montserrat_18, COL_HAND,
               LV_TEXT_ALIGN_CENTER, "INDIA  IST");
 
     if (!s_noTime) {
@@ -235,6 +236,9 @@ static void draw_local(const struct tm* ti) {
 
     lv_layer_t L;
     lv_canvas_init_layer(f.canvas, &L);
+
+    draw_text(&L, 143, 112, 180, &lv_font_montserrat_18, COL_DATE,
+              LV_TEXT_ALIGN_CENTER, "LOCAL");
 
     if (!s_noTime) {
         char ds[4];
@@ -328,7 +332,7 @@ lv_obj_t* clock_faces_build(void) {
     lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_screen, on_screen_delete, LV_EVENT_DELETE, NULL);
 
-    // Local-time embossed Orb Imperial left, India-time steampunk right.
+    // Local-time gunmetal left, India-time steampunk brass right.
     make_canvas(s_screen, s_local, DIAL_LEFT_X, DIAL_Y);
     make_canvas(s_screen, s_steampunk, DIAL_RIGHT_X, DIAL_Y);
 

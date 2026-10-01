@@ -7,6 +7,9 @@ set -e
 echo "==> Building..."
 pio run
 
+echo "==> Baking OTA artwork..."
+python3 tools/bake_art.py .pio/build/esp32p4/art.bin
+
 BIN=".pio/build/esp32p4/firmware.bin"
 if [ ! -f "$BIN" ]; then
     echo "ERROR: $BIN not found after build"
@@ -14,8 +17,11 @@ if [ ! -f "$BIN" ]; then
 fi
 
 SIZE=$(wc -c < "$BIN")
+ART=".pio/build/esp32p4/art.bin"
+ART_SIZE=$(wc -c < "$ART")
 echo ""
 echo "==> Firmware ready: $BIN ($SIZE bytes)"
+echo "==> Artwork ready:  $ART ($ART_SIZE bytes)"
 echo ""
 echo "    Your IP addresses:"
 ifconfig | grep "inet " | grep -v "127.0.0.1" | awk '{print "      " $2}'

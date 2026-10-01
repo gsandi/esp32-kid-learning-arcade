@@ -20,6 +20,7 @@
 #include "esp_sntp.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
+#include "esp_heap_caps.h"
 #include "driver/i2s_std.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdmmc_host.h"
@@ -2475,19 +2476,103 @@ static void on_add50(lv_event_t* e) {
 static void on_admin_home(lv_event_t* e) { show_home(); }
 
 // ── OTA task ──────────────────────────────────────────────────────────────────
+static void ota_set_status(const char* msg) {
+    lvgl_port_lock(0);
+    if (g_ota_status_lbl) lv_label_set_text(g_ota_status_lbl, msg);
+    lvgl_port_unlock();
+}
+
+// Artwork is a separate 3 MB data partition, so the normal ESP app OTA cannot
+// update it. Download the complete pack to PSRAM first, validate its KART header,
+// and only then erase/write flash. A dropped connection therefore leaves the
+// currently installed artwork intact.
+static bool ota_update_art(void) {
+    const esp_partition_t* part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, "art");
+    if (!part) { ota_set_status("Artwork partition missing"); return false; }
+
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:8080/art.bin", g_ota_server_ip);
+    esp_http_client_config_t cfg = {};
+    cfg.url = url;
+    cfg.timeout_ms = 15000;
+    cfg.keep_alive_enable = true;
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client || esp_http_client_open(client, 0) != ESP_OK) {
+        if (client) esp_http_client_cleanup(client);
+        ota_set_status("Cannot fetch artwork");
+        return false;
+    }
+    int64_t expected = esp_http_client_fetch_headers(client);
+    if (expected < 16 || expected > (int64_t)part->size) {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        ota_set_status("Artwork size is invalid");
+        return false;
+    }
+
+    uint8_t* image = (uint8_t*)heap_caps_malloc((size_t)expected,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!image) {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        ota_set_status("Not enough memory for artwork");
+        return false;
+    }
+
+    size_t total = 0;
+    while (total < (size_t)expected) {
+        int got = esp_http_client_read(client, (char*)image + total,
+                                       (int)((size_t)expected - total > 8192
+                                           ? 8192 : (size_t)expected - total));
+        if (got <= 0) break;
+        total += (size_t)got;
+        if ((total & 0xFFFF) < (size_t)got) {
+            char status[64];
+            snprintf(status, sizeof(status), "Artwork... %u%%",
+                     (unsigned)(total * 100 / (size_t)expected));
+            ota_set_status(status);
+        }
+    }
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    const uint32_t magic = 0x5452414Bu;
+    uint32_t downloaded_magic = 0;
+    memcpy(&downloaded_magic, image, sizeof(downloaded_magic));
+    if (total != (size_t)expected || downloaded_magic != magic) {
+        heap_caps_free(image);
+        ota_set_status(total != (size_t)expected ? "Artwork download interrupted"
+                                                  : "Artwork file is invalid");
+        return false;
+    }
+
+    ota_set_status("Installing artwork...");
+    esp_err_t err = esp_partition_erase_range(part, 0, part->size);
+    if (err == ESP_OK) err = esp_partition_write(part, 0, image, total);
+    uint32_t installed_magic = 0;
+    if (err == ESP_OK) err = esp_partition_read(part, 0, &installed_magic,
+                                                sizeof(installed_magic));
+    if (err == ESP_OK && installed_magic != magic) err = ESP_ERR_INVALID_CRC;
+    heap_caps_free(image);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "art OTA write failed: %s", esp_err_to_name(err));
+        ota_set_status("Artwork install failed");
+        return false;
+    }
+    ESP_LOGI(TAG, "OTA: artwork installed (%u bytes)", (unsigned)total);
+    return true;
+}
+
 static void ota_task(void* arg) {
     char url[128];
     snprintf(url, sizeof(url), "http://%s:8080/firmware.bin", g_ota_server_ip);
     ESP_LOGI(TAG, "OTA: fetching %s", url);
 
-    auto set_status = [](const char* msg) {
-        lvgl_port_lock(0);
-        if (g_ota_status_lbl) lv_label_set_text(g_ota_status_lbl, msg);
-        lvgl_port_unlock();
-    };
+    if (!ota_update_art()) { vTaskDelete(NULL); return; }
 
     const esp_partition_t* update_part = esp_ota_get_next_update_partition(NULL);
-    if (!update_part) { set_status("No OTA partition found"); vTaskDelete(NULL); return; }
+    if (!update_part) { ota_set_status("No OTA partition found"); vTaskDelete(NULL); return; }
 
     esp_http_client_config_t http_cfg = {};
     http_cfg.url            = url;
@@ -2496,7 +2581,7 @@ static void ota_task(void* arg) {
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
 
     if (esp_http_client_open(client, 0) != ESP_OK) {
-        set_status("Cannot reach server — check IP");
+        ota_set_status("Cannot reach server - check IP");
         esp_http_client_cleanup(client);
         vTaskDelete(NULL); return;
     }
@@ -2504,7 +2589,7 @@ static void ota_task(void* arg) {
 
     esp_ota_handle_t ota_handle = 0;
     if (esp_ota_begin(update_part, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle) != ESP_OK) {
-        set_status("OTA begin failed");
+        ota_set_status("OTA begin failed");
         esp_http_client_cleanup(client);
         vTaskDelete(NULL); return;
     }
@@ -2520,7 +2605,7 @@ static void ota_task(void* arg) {
         total += rlen;
         char s[64];
         snprintf(s, sizeof(s), "Downloading... %d KB", total / 1024);
-        set_status(s);
+        ota_set_status(s);
     }
     free(buf);
     esp_http_client_close(client);
@@ -2528,13 +2613,13 @@ static void ota_task(void* arg) {
 
     if (write_err != ESP_OK || total == 0) {
         esp_ota_abort(ota_handle);
-        set_status(total == 0 ? "Empty response — wrong path?" : "OTA write failed");
+        ota_set_status(total == 0 ? "Empty response - wrong path?" : "OTA write failed");
         vTaskDelete(NULL); return;
     }
-    if (esp_ota_end(ota_handle) != ESP_OK) { set_status("OTA verify failed"); vTaskDelete(NULL); return; }
-    if (esp_ota_set_boot_partition(update_part) != ESP_OK) { set_status("Boot set failed"); vTaskDelete(NULL); return; }
+    if (esp_ota_end(ota_handle) != ESP_OK) { ota_set_status("OTA verify failed"); vTaskDelete(NULL); return; }
+    if (esp_ota_set_boot_partition(update_part) != ESP_OK) { ota_set_status("Boot set failed"); vTaskDelete(NULL); return; }
 
-    set_status("Done! Rebooting in 2s...");
+    ota_set_status("Done - rebooting in 2s...");
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
     vTaskDelete(NULL);

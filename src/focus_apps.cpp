@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 static const char* TAG = "focus_apps";
 static constexpr uint32_t BG       = desk_ui::BLACK;
@@ -73,6 +74,7 @@ static uint8_t   s_lap_count = 0;
 
 static lv_timer_t* s_service = nullptr;
 static lv_image_dsc_t s_bg_stopwatch = {};
+static lv_image_dsc_t s_bg_focus = {};
 
 // Pomodoro screen refs. They are nulled by the screen DELETE event.
 static lv_obj_t* s_pomo_scr = nullptr;
@@ -278,38 +280,12 @@ static void format_clock(char* out, size_t n, uint32_t sec, bool hours) {
     else snprintf(out, n, "%02lu:%02lu", (unsigned long)m, (unsigned long)s);
 }
 
-// A full lap is one minute.  A single custom-drawn object renders the 60 teeth so the
-// animation costs one LVGL object instead of 60.  One tooth falls dark each second,
-// then the frame relights at the minute boundary like a mechanical escapement.
-static void pomo_tick_area(uint8_t i, lv_area_t* a) {
-    constexpr int left = 26;
-    constexpr int right = 492;
-    constexpr int top = 106;
-    constexpr int bottom = 574;
-    constexpr int h_count = 16;
-    constexpr int v_count = 14;
-    constexpr int h_w = 23;
-    constexpr int h_h = 8;
-    constexpr int v_w = 8;
-    constexpr int v_h = 24;
-
-    if (i < h_count) {
-        int x = left + 18 + (i * (right - left - 36 - h_w)) / (h_count - 1);
-        *a = {x, top, x + h_w - 1, top + h_h - 1};
-    } else if (i < h_count + v_count) {
-        int j = i - h_count;
-        int y = top + 22 + (j * (bottom - top - 44 - v_h)) / (v_count - 1);
-        *a = {right - v_w, y, right - 1, y + v_h - 1};
-    } else if (i < 2 * h_count + v_count) {
-        int j = (2 * h_count + v_count - 1) - i;
-        int x = left + 18 + (j * (right - left - 36 - h_w)) / (h_count - 1);
-        *a = {x, bottom - h_h, x + h_w - 1, bottom - 1};
-    } else {
-        int j = (2 * h_count + 2 * v_count - 1) - i;
-        int y = top + 22 + (j * (bottom - top - 44 - v_h)) / (v_count - 1);
-        *a = {left, y, left + v_w - 1, y + v_h - 1};
-    }
-}
+// A full lap is one minute.  The old rectangular countdown frame made Focus
+// feel like a draining box.  Sixty radial marks now live in the recessed track
+// of the generated brass instrument; one extinguishes each second.
+static constexpr int FOCUS_CX = 258;
+static constexpr int FOCUS_CY = 323;
+static constexpr float PI_F = 3.14159265358979323846f;
 
 static uint8_t pomo_tick_elapsed(void) {
     uint32_t seconds = s_pomo_remaining % POMO_TICK_COUNT;
@@ -332,14 +308,23 @@ static void draw_pomo_ticks(lv_event_t* e) {
         else if (i >= elapsed) opa = paused ? LV_OPA_50 : LV_OPA_COVER;
         bool head = active && !paused && !complete && elapsed < POMO_TICK_COUNT && i == elapsed;
 
-        lv_draw_rect_dsc_t d;
-        lv_draw_rect_dsc_init(&d);
-        d.bg_color = lv_color_hex(complete ? GOLD : (head ? 0xFFF2B0 : ((i & 1) ? GOLD : desk_ui::BRASS_DIM)));
-        d.bg_opa = opa;
-        d.radius = 4;
-        lv_area_t a;
-        pomo_tick_area(i, &a);
-        lv_draw_rect(layer, &d, &a);
+        const bool major = (i % 5) == 0;
+        const float angle = ((float)i * 2.0f * PI_F / POMO_TICK_COUNT) - PI_F / 2.0f;
+        const float inner = major ? 176.0f : 181.0f;
+        const float outer = 199.0f;
+
+        lv_draw_line_dsc_t d;
+        lv_draw_line_dsc_init(&d);
+        d.p1.x = (lv_value_precise_t)lroundf(FOCUS_CX + cosf(angle) * inner);
+        d.p1.y = (lv_value_precise_t)lroundf(FOCUS_CY + sinf(angle) * inner);
+        d.p2.x = (lv_value_precise_t)lroundf(FOCUS_CX + cosf(angle) * outer);
+        d.p2.y = (lv_value_precise_t)lroundf(FOCUS_CY + sinf(angle) * outer);
+        d.color = lv_color_hex(complete ? GOLD : (head ? 0xFFF2B0 : GOLD));
+        d.opa = opa;
+        d.width = major ? 7 : 4;
+        d.round_start = 1;
+        d.round_end = 1;
+        lv_draw_line(layer, &d);
     }
 }
 
@@ -361,19 +346,8 @@ static void refresh_pomo_ticks(void) {
     if (!s_pomo_tick_frame) return;
     int8_t elapsed = (int8_t)pomo_tick_elapsed();
     int8_t state = (int8_t)s_pomo;
-    if (s_pomo_last_tick_state != state || s_pomo_last_tick < 0 || elapsed < s_pomo_last_tick) {
+    if (s_pomo_last_tick_state != state || s_pomo_last_tick != elapsed)
         lv_obj_invalidate(s_pomo_tick_frame);
-    } else if (elapsed != s_pomo_last_tick) {
-        lv_area_t a;
-        if (s_pomo_last_tick < POMO_TICK_COUNT) {
-            pomo_tick_area((uint8_t)s_pomo_last_tick, &a);
-            lv_obj_invalidate_area(s_pomo_tick_frame, &a);
-        }
-        if (elapsed < POMO_TICK_COUNT) {
-            pomo_tick_area((uint8_t)elapsed, &a);
-            lv_obj_invalidate_area(s_pomo_tick_frame, &a);
-        }
-    }
     s_pomo_last_tick = elapsed;
     s_pomo_last_tick_state = state;
 }
@@ -496,6 +470,7 @@ void focus_apps_init(void) {
     }
     load_session_log();
     art_image("bg_stopwatch", &s_bg_stopwatch);
+    art_image("bg_focus", &s_bg_focus);
     if (!s_service) s_service = lv_timer_create(service_cb, 250, nullptr);
 }
 
@@ -574,12 +549,18 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_add_event_cb(scr, pomo_screen_deleted, LV_EVENT_DELETE, nullptr);
     add_header(scr, "FOCUS", home_cb);
 
+    if (s_bg_focus.data) {
+        lv_obj_t* bezel = lv_image_create(scr);
+        lv_image_set_src(bezel, &s_bg_focus);
+        lv_obj_set_pos(bezel, 25, 90);
+        desk_ui::make_inert(bezel);
+    }
     create_pomo_ticks(scr);
 
     // Deliberately quiet: gaze, countdown, progress, controls. Nothing else.
     // Instrument and character occupy the left half; time and controls own the
     // right half.  The split remains stable while the session is running.
-    lv_obj_t* face = rocky_create(scr, 258, 306, 0.82f);
+    lv_obj_t* face = rocky_create(scr, 258, 412, 0.82f);
     rocky_set_mouth_visible(false);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
