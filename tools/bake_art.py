@@ -17,6 +17,7 @@ Sources:
     assets/clocks/local-embossed-v2.png             (opaque RGB clock plate)
     assets/clocks/india-embossed-v2.png             (opaque RGB clock plate)
     assets/apps/focus-instrument-v2.png             (opaque RGB focus bezel)
+    assets/apps/focus-instrument-classic.png        (opaque RGB classic bezel)
     assets/icons/*.png                              (launcher icons, any size, RGBA)
 
 Usage:  python3 tools/bake_art.py [out.bin]
@@ -61,6 +62,7 @@ for name, rel in (
     ('dial_local', 'assets/clocks/local-embossed-v2.png'),
     ('dial_steam', 'assets/clocks/india-embossed-v2.png'),
     ('bg_focus', 'assets/apps/focus-instrument-v2.png'),
+    ('bg_focus_clean', 'assets/apps/focus-instrument-classic.png'),
 ):
     w, h, blob = png_rgb565(os.path.join(ROOT, rel))
     assert (w, h) == (466, 466), f'{rel} is {w}x{h}, expected 466x466'

@@ -74,7 +74,11 @@ static uint8_t   s_lap_count = 0;
 
 static lv_timer_t* s_service = nullptr;
 static lv_image_dsc_t s_bg_stopwatch = {};
-static lv_image_dsc_t s_bg_focus = {};
+static lv_image_dsc_t s_bg_focus_brass = {};
+static lv_image_dsc_t s_bg_focus_classic = {};
+
+enum FocusSkin : uint8_t { FOCUS_CLASSIC = 0, FOCUS_BRASS = 1 };
+static FocusSkin s_focus_skin = FOCUS_CLASSIC;
 
 // Pomodoro screen refs. They are nulled by the screen DELETE event.
 static lv_obj_t* s_pomo_scr = nullptr;
@@ -85,6 +89,8 @@ static lv_obj_t* s_pomo_presets = nullptr;
 static lv_obj_t* s_pomo_controls = nullptr;
 static lv_obj_t* s_pomo_primary_lbl = nullptr;
 static lv_obj_t* s_pomo_add_btn = nullptr;
+static lv_obj_t* s_pomo_skin_image = nullptr;
+static lv_obj_t* s_pomo_skin_label = nullptr;
 static constexpr uint8_t POMO_TICK_COUNT = 60;
 static lv_obj_t* s_pomo_tick_frame = nullptr;
 static int8_t s_pomo_last_tick = -1;
@@ -283,8 +289,9 @@ static void format_clock(char* out, size_t n, uint32_t sec, bool hours) {
 // A full lap is one minute.  The old rectangular countdown frame made Focus
 // feel like a draining box.  Sixty radial marks now live in the recessed track
 // of the generated brass instrument; one extinguishes each second.
-static constexpr int FOCUS_CX = 258;
-static constexpr int FOCUS_CY = 323;
+// Tick coordinates are local to the 466x466 instrument object.
+static constexpr int FOCUS_CX = 233;
+static constexpr int FOCUS_CY = 233;
 static constexpr float PI_F = 3.14159265358979323846f;
 
 static uint8_t pomo_tick_elapsed(void) {
@@ -302,10 +309,14 @@ static void draw_pomo_ticks(lv_event_t* e) {
     bool complete = s_pomo == POMO_FOCUS_DONE || s_pomo == POMO_BREAK_DONE;
 
     for (uint8_t i = 0; i < POMO_TICK_COUNT; ++i) {
-        lv_opa_t opa = LV_OPA_30;
+        const bool classic = s_focus_skin == FOCUS_CLASSIC;
+        const uint32_t active_color = classic ? 0xF4F7FA : 0xFFF0B0;
+        const uint32_t dim_color = classic ? 0x4E5964 : 0x6F4718;
+        const uint32_t head_color = classic ? 0xD7F1FF : 0xFFFFFF;
+        lv_opa_t opa = LV_OPA_60;
         if (complete) opa = LV_OPA_COVER;
-        else if (!active) opa = (i % 5 == 0) ? LV_OPA_70 : LV_OPA_30;
-        else if (i >= elapsed) opa = paused ? LV_OPA_50 : LV_OPA_COVER;
+        else if (!active) opa = (i % 5 == 0) ? LV_OPA_COVER : LV_OPA_60;
+        else if (i >= elapsed) opa = paused ? LV_OPA_70 : LV_OPA_COVER;
         bool head = active && !paused && !complete && elapsed < POMO_TICK_COUNT && i == elapsed;
 
         const bool major = (i % 5) == 0;
@@ -319,7 +330,9 @@ static void draw_pomo_ticks(lv_event_t* e) {
         d.p1.y = (lv_value_precise_t)lroundf(FOCUS_CY + sinf(angle) * inner);
         d.p2.x = (lv_value_precise_t)lroundf(FOCUS_CX + cosf(angle) * outer);
         d.p2.y = (lv_value_precise_t)lroundf(FOCUS_CY + sinf(angle) * outer);
-        d.color = lv_color_hex(complete ? GOLD : (head ? 0xFFF2B0 : GOLD));
+        d.color = lv_color_hex(complete ? active_color
+                                       : (head ? head_color
+                                               : (i >= elapsed ? active_color : dim_color)));
         d.opa = opa;
         d.width = major ? 7 : 4;
         d.round_start = 1;
@@ -330,8 +343,8 @@ static void draw_pomo_ticks(lv_event_t* e) {
 
 static void create_pomo_ticks(lv_obj_t* parent) {
     s_pomo_tick_frame = lv_obj_create(parent);
-    lv_obj_set_size(s_pomo_tick_frame, 1024, 600);
-    lv_obj_set_pos(s_pomo_tick_frame, 0, 0);
+    lv_obj_set_size(s_pomo_tick_frame, 466, 466);
+    lv_obj_set_pos(s_pomo_tick_frame, 25, 90);
     lv_obj_set_style_bg_opa(s_pomo_tick_frame, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_pomo_tick_frame, 0, 0);
     lv_obj_set_style_pad_all(s_pomo_tick_frame, 0, 0);
@@ -457,6 +470,9 @@ void focus_apps_init(void) {
         nvs_get_u16(h, "sprint", &saved[1]);
         nvs_get_u16(h, "break", &saved[2]);
         nvs_get_u16(h, "long", &saved[3]);
+        uint8_t skin = FOCUS_CLASSIC;
+        if (nvs_get_u8(h, "skin", &skin) == ESP_OK && skin <= FOCUS_BRASS)
+            s_focus_skin = (FocusSkin)skin;
         nvs_close(h);
         bool valid = true;
         for (int i = 0; i < 4; ++i) valid &= saved[i] >= 1 && saved[i] <= 180;
@@ -470,7 +486,8 @@ void focus_apps_init(void) {
     }
     load_session_log();
     art_image("bg_stopwatch", &s_bg_stopwatch);
-    art_image("bg_focus", &s_bg_focus);
+    art_image("bg_focus", &s_bg_focus_brass);
+    art_image("bg_focus_clean", &s_bg_focus_classic);
     if (!s_service) s_service = lv_timer_create(service_cb, 250, nullptr);
 }
 
@@ -478,7 +495,31 @@ static void pomo_screen_deleted(lv_event_t*) {
     s_pomo_scr = s_pomo_digits = s_pomo_status = s_pomo_hint = nullptr;
     s_pomo_presets = s_pomo_controls = s_pomo_primary_lbl = s_pomo_add_btn = nullptr;
     s_pomo_tick_frame = nullptr;
+    s_pomo_skin_image = s_pomo_skin_label = nullptr;
     s_pomo_last_tick = s_pomo_last_tick_state = -1;
+}
+
+static const lv_image_dsc_t* active_focus_skin() {
+    if (s_focus_skin == FOCUS_CLASSIC && s_bg_focus_classic.data)
+        return &s_bg_focus_classic;
+    return s_bg_focus_brass.data ? &s_bg_focus_brass : nullptr;
+}
+
+static void on_focus_skin_toggle(lv_event_t*) {
+    s_focus_skin = s_focus_skin == FOCUS_CLASSIC ? FOCUS_BRASS : FOCUS_CLASSIC;
+    nvs_handle_t h;
+    if (nvs_open("pomo", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "skin", (uint8_t)s_focus_skin);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    const lv_image_dsc_t* skin = active_focus_skin();
+    if (s_pomo_skin_image && skin) lv_image_set_src(s_pomo_skin_image, skin);
+    if (s_pomo_skin_label)
+        lv_label_set_text(s_pomo_skin_label,
+                          s_focus_skin == FOCUS_CLASSIC ? "CLASSIC" : "BRASS");
+    s_pomo_last_tick = s_pomo_last_tick_state = -1;
+    refresh_pomo_ticks();
 }
 
 static void on_rocky_tap(lv_event_t*) { rocky_set_expression(ROCKY_LOOK); }
@@ -549,19 +590,20 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_add_event_cb(scr, pomo_screen_deleted, LV_EVENT_DELETE, nullptr);
     add_header(scr, "FOCUS", home_cb);
 
-    if (s_bg_focus.data) {
-        lv_obj_t* bezel = lv_image_create(scr);
-        lv_image_set_src(bezel, &s_bg_focus);
-        lv_obj_set_pos(bezel, 25, 90);
-        desk_ui::make_inert(bezel);
+    const lv_image_dsc_t* skin = active_focus_skin();
+    if (skin) {
+        s_pomo_skin_image = lv_image_create(scr);
+        lv_image_set_src(s_pomo_skin_image, skin);
+        lv_obj_set_pos(s_pomo_skin_image, 25, 90);
+        desk_ui::make_inert(s_pomo_skin_image);
     }
     create_pomo_ticks(scr);
 
     // Deliberately quiet: gaze, countdown, progress, controls. Nothing else.
     // Instrument and character occupy the left half; time and controls own the
     // right half.  The split remains stable while the session is running.
-    lv_obj_t* face = rocky_create(scr, 258, 412, 0.82f);
-    rocky_set_mouth_visible(false);
+    lv_obj_t* face = rocky_create(scr, 258, 378, 0.82f);
+    rocky_set_mouth_visible(true);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
 
@@ -574,14 +616,26 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     lv_obj_set_style_pad_all(split, 0, 0);
     desk_ui::make_inert(split);
 
-    s_pomo_status = label(scr, "", &lv_font_montserrat_20, ORANGE);
-    lv_obj_align(s_pomo_status, LV_ALIGN_TOP_LEFT, 640, 132);
+    // Rocky, status and countdown are one instrument again. The right half is
+    // reserved for choices and in-session controls rather than duplicating time.
+    s_pomo_status = label(scr, "", &lv_font_montserrat_20, TEXT);
+    lv_obj_set_width(s_pomo_status, 300);
+    lv_obj_set_style_text_align(s_pomo_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_pomo_status, 108, 166);
     s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_48, TEXT);
-    lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_LEFT, 610, 184);
+    lv_obj_set_width(s_pomo_digits, 260);
+    lv_obj_set_style_text_align(s_pomo_digits, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_pomo_digits, 128, 416);
     s_pomo_hint = label(scr, "", &lv_font_montserrat_20, MUTED);
     lv_obj_set_width(s_pomo_hint, 430);
     lv_obj_set_style_text_align(s_pomo_hint, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_LEFT, 552, 256);
+    lv_obj_align(s_pomo_hint, LV_ALIGN_TOP_LEFT, 552, 154);
+
+    lv_obj_t* skin_button = desk_ui::button(scr,
+        s_focus_skin == FOCUS_CLASSIC ? "CLASSIC" : "BRASS",
+        136, 48, desk_ui::ButtonKind::Secondary, on_focus_skin_toggle, nullptr);
+    lv_obj_align(skin_button, LV_ALIGN_TOP_RIGHT, -18, 13);
+    s_pomo_skin_label = lv_obj_get_child(skin_button, 0);
 
     s_pomo_presets = lv_obj_create(scr);
     lv_obj_set_size(s_pomo_presets, 480, 220);
@@ -598,7 +652,7 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
                              on_preset, (void*)(uintptr_t)mins[i]);
         lv_obj_set_pos(b, 8 + i * 158, 24);
     }
-    lv_obj_t* preset_hint = label(s_pomo_presets, "SPRINT              CLASSIC              DEEP",
+    lv_obj_t* preset_hint = label(s_pomo_presets, "SPRINT            STANDARD              DEEP",
                                   &lv_font_montserrat_18, MUTED);
     lv_obj_align(preset_hint, LV_ALIGN_BOTTOM_MID, 0, -28);
 
