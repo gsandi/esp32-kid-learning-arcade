@@ -4221,3 +4221,57 @@ The "3D embossed option" you liked is Orb's **Imperial Signal** face (`assets/or
 - Reused one hidden top-layer alert card instead of allocating and deleting LVGL objects for every notification.
 - Kept card allocation and visibility as separate state so hiding the reused card cannot block later queued alerts.
 - Added and ran host parser coverage for Unicode, invalid UTF-8, control characters, invalid flags/IDs and length mismatches; `pio run` passes.
+
+---
+
+## 2026-10-01 12:58:48
+
+**Prompt:** Independently diagnose the persistent ESP32-P4 LVGL freeze in this repository. The device becomes unresponsive after leaving the clock and entering apps. Serial shows taskLVGL watchdog and PCs in lv_draw plus LVGL TLSF allocator. Review current HEAD including commits 8f92c0a and db9f1cb, especially object lifetimes, timers, screen deletion, image descriptors, draw callbacks, and thread safety. Do not edit files. Return evidence-backed root causes ranked by confidence and the smallest concrete fix with file and line references. Challenge prior assumptions.
+
+**Work done:** (completed 2026-10-01 13:03:04)
+
+I diagnosed this as read-only; I edited no files. The 64 KB LVGL heap is running out, and LVGL then retries a failed allocation forever. It is not memory corruption, and db9f1cb's explanation doesn't hold up.
+
+**A second session is editing this tree right now.** It has uncommitted changes to `src/main.cpp`, `src/ui_theme.cpp` and `changelog-claude.md`, and they remove exactly the lines behind cause #1 below. I didn't touch them. Everything below is checked against HEAD.
+
+## 1. Pressed buttons need more memory than LVGL has (high confidence, ~90%)
+
+**What triggers it.** At HEAD, five controls shrink slightly while pressed using `transform_scale`:
+- `src/main.cpp:977` (`make_btn`)
+- `src/main.cpp:1230` (`make_app_tile`)
+- `src/main.cpp:1300` (`make_game_card`)
+- `src/main.cpp:2057` (`conn_btn`)
+- `src/ui_theme.cpp:74` (`desk_ui::button`)
+
+**Why it can't work.**
+- In LVGL 9.3, any transform style makes LVGL draw the whole widget into a separate offscreen buffer first. That buffer is not split into smaller pieces (`lv_refr.c:1012-1033`; only the other layer type gets split, `lv_refr.c:1226`).
+- That buffer comes from `lv_malloc` (`lv_draw_buf.c` `buf_malloc`), which on this build is LVGL's own fixed heap: `CONFIG_LV_USE_BUILTIN_MALLOC=y` and `CONFIG_LV_MEM_SIZE_KILOBYTES=64` (`sdkconfig.esp32p4:4475,4497`). The built config confirms 64.
+- Sizes, all larger than the entire 64 KB heap:
+
+| Control | Size | Buffer needed (with transparency) | Without transparency |
+|---|---|---|---|
+| Home app tile (`main.cpp:1453`) | 164×202 | ≈174×212×4 ≈ 147 KB | ≈ 74 KB |
+| Arcade game card | 454×410 | ≈ 760 KB | — |
+
+**Why it hangs instead of crashing.**
+- When the buffer can't be allocated, `lv_draw_layer_alloc_buf` logs "Allocating layer buffer failed. Try later" and returns NULL (`lv_draw.c:478-482`).
+- The software renderer then reports itself idle (`lv_draw_sw.c:322-326`), and the dispatcher immediately asks for another attempt (`lv_draw.c:224-226`).
+- With `CONFIG_LV_OS_NONE`, `lv_draw_dispatch_wait_for_request` is a busy-wait (`lv_draw.c:301`), and `draw_buf_flush` loops `while(layer->draw_task_head)` (`lv_refr.c:1352`).
+- So taskLVGL loops forever, alternating between LVGL drawing code and the heap allocator. It holds the LVGL lock the whole time, so the idle task starves and the watchdog fires. That matches your serial output exactly.
+
+**Why it shows up after leaving the clock.** Tapping the clock opens the launcher, and tapping an app tile puts it in the pressed state. Holding the tile through one 33 ms screen refresh is enough to hang.
+
+**Smallest fix.** Delete those five `transform_scale` lines and show the press with a colour change instead. The other session's uncommitted diff does this: I read it and it covers all five places. `focus_apps.cpp`, `voice_notes.cpp` and `rocky.cpp` have none of these transforms.
+
+**How to confirm.** Flash HEAD and press-and-hold a home tile for about 0.5 s: it should freeze on that frame. With the fix, it shouldn't.
+
+## 2. A 64 KB heap is too small in general (medium confidence, ~40%)
+
+Even without transforms, the heap can fill up or fragment, and the result looks the same on serial. Every draw step is allocated from it, followed by `LV_ASSERT_MALLOC` (`lv_draw.c:104-105`). The assert handler is LVGL's default `while(1);` (`sdkconfig.esp32p4:4638` only sets the include). An out-of-memory there is a silent spin inside drawing code, followed by the watchdog.
+
+There's a real source of pressure: the pomodoro screen's custom draw callback queues 60 separate line draws on every redraw of a 1024×600 object (`focus_apps.cpp:297-325`, invalidated at `:350`).
+
+Hardening (config only):
+- `CONFIG_LV_USE_CLIB_MALLOC=y`, so LVGL uses the system allocator and large buffers can go to PSRAM (`SPIRAM_USE_MALLOC=y` is already set).
+- Set `CONFIG_LV_ASSERT_HANDLER` to `abort();` so an out-of-memory panics with a backtrace instead of spinning.
+- Turn on `CONFIG_LV_USE_LOG` at WARN level, so the "Try later" message reaches 

@@ -71,7 +71,8 @@ lv_obj_t* button(lv_obj_t* parent, const char* text, int width, int height,
     lv_obj_set_style_border_width(object, border_width, 0);
     lv_obj_set_style_border_color(object, lv_color_hex(border), 0);
     lv_obj_set_style_shadow_width(object, 0, 0);
-    lv_obj_set_style_transform_scale(object, 248, LV_STATE_PRESSED);
+    // Color-only press feedback needs no offscreen transform layer. Large
+    // controls can otherwise exhaust LVGL's fixed heap and stall rendering.
     if (callback) lv_obj_add_event_cb(object, callback, LV_EVENT_CLICKED, user_data);
 
     lv_obj_t* caption = label(object, text, &lv_font_montserrat_20, foreground);

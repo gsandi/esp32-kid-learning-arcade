@@ -974,7 +974,6 @@ static lv_obj_t* make_btn(lv_obj_t* parent, const char* txt,
     lv_obj_set_style_border_color(btn, lv_color_hex(C_GOLD), 0);
     lv_obj_set_style_border_opa(btn, bg == C_GOLD ? LV_OPA_TRANSP : LV_OPA_40, 0);
     lv_obj_set_style_shadow_width(btn, 0, 0);
-    lv_obj_set_style_transform_scale(btn, 248, LV_STATE_PRESSED);
     lv_obj_t* lbl = lv_label_create(btn);
     lv_label_set_text(lbl, txt);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_32, 0);
@@ -1227,7 +1226,11 @@ static lv_obj_t* make_app_tile(lv_obj_t* parent, const lv_image_dsc_t* icon,
     lv_obj_set_style_border_color(t, lv_color_hex(desk_ui::LINE), 0);
     lv_obj_set_style_border_opa(t, LV_OPA_COVER, 0);
     lv_obj_set_style_shadow_width(t, 0, 0);
-    lv_obj_set_style_transform_scale(t, 248, LV_STATE_PRESSED);
+    // Scaling a tile allocates a full offscreen layer; even a 164x202 tile
+    // exceeds LVGL's 64 KiB heap. Keep press feedback in the direct draw path.
+    lv_obj_set_style_bg_color(t, lv_color_hex(desk_ui::SURFACE_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_grad_color(t, lv_color_hex(desk_ui::SURFACE_PRESS), LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(t, lv_color_hex(bg), LV_STATE_PRESSED);
     lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(t, cb, LV_EVENT_CLICKED, NULL);
@@ -1297,7 +1300,7 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
     lv_obj_set_style_border_color(card, lv_color_hex(bg), 0);
     lv_obj_set_style_pad_all(card, 0, 0);
     lv_obj_set_style_shadow_width(card, 0, 0);
-    lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(card, lv_color_hex(desk_ui::SURFACE_PRESS), LV_STATE_PRESSED);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(card, cb, LV_EVENT_CLICKED, NULL);
@@ -2054,7 +2057,6 @@ static void show_wifi_password_screen(const char* ssid) {
     lv_obj_set_style_radius(conn_btn, 18, 0);
     lv_obj_set_style_border_width(conn_btn, 0, 0);
     lv_obj_set_style_shadow_width(conn_btn, 0, 0);
-    lv_obj_set_style_transform_scale(conn_btn, 248, LV_STATE_PRESSED);
     lv_obj_t* conn_lbl = lv_label_create(conn_btn);
     lv_label_set_text(conn_lbl, "Connect");
     lv_obj_set_style_text_font(conn_lbl, &lv_font_montserrat_28, 0);
@@ -2119,7 +2121,9 @@ static void launch_wifi(void) {
     lv_obj_set_style_radius(g_wifi_list, 12, 0);
     lv_obj_set_style_pad_row(g_wifi_list, 6, 0);
     lv_obj_set_style_pad_all(g_wifi_list, 8, 0);
-    lv_obj_set_style_clip_corner(g_wifi_list, true, 0);
+    // Corner clipping adds two 47 KiB ARGB strips at this width. The inset
+    // rows keep clear of the rounded background without those layer buffers.
+    lv_obj_set_style_clip_corner(g_wifi_list, false, 0);
 
     lv_obj_t* rescan_btn = lv_button_create(scr);
     lv_obj_set_size(rescan_btn, 200, 60);
