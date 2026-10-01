@@ -44,6 +44,7 @@
 #include "focus_apps.h"
 #include "rocky_ble.h"
 #include "voice_notes.h"
+#include "ui_theme.h"
 
 #define TAG "kid_arcade"
 
@@ -76,25 +77,25 @@
 #define ADMIN_PIN           "0000"
 
 // ── Colors — vibrant, kid-friendly, high-contrast ─────────────────────────────
-#define C_BG          0x1A0533   // deep purple background
-#define C_HEADER      0x2D1B69   // mid-purple header / nav bar
-#define C_MATH        0xFF6B35   // vivid orange (math card)
-#define C_MATH_DK     0xC74A1E   // pressed math
-#define C_READ        0x4ECDC4   // teal (reading card)
-#define C_READ_DK     0x35968F   // pressed reading
-#define C_CORRECT     0x06D6A0   // mint green
-#define C_CORRECT_DK  0x04A87D   // pressed correct
-#define C_WRONG       0xFFB347   // warm amber (soft, no red flash)
-#define C_WRONG_DK    0xD9933A   // pressed wrong
-#define C_GOLD        0xFFD166   // gold / stars
-#define C_BTN         0x3A2A7A   // default purple-blue button
-#define C_BTN_PRESS   0x55409E   // pressed button
-#define C_BTN_ALT     0x6A4FB5   // accent button (numpad helpers)
-#define C_DANGER      0xB5485E   // reset / destructive (muted rose, not harsh red)
-#define C_DANGER_DK   0x8F3849
-#define C_CARD_TXT    0xFFFFFF   // white text
-#define C_SUBTEXT     0xBBAADD   // soft lavender subtext
-#define C_STAR        0xFFD166   // star gold (alias)
+#define C_BG          desk_ui::BLACK
+#define C_HEADER      desk_ui::SURFACE
+#define C_MATH        desk_ui::BRASS
+#define C_MATH_DK     desk_ui::BRASS_DIM
+#define C_READ        desk_ui::INFO
+#define C_READ_DK     0x3E7487
+#define C_CORRECT     desk_ui::SUCCESS
+#define C_CORRECT_DK  0x347B5B
+#define C_WRONG       0xC9914D
+#define C_WRONG_DK    0x8A6336
+#define C_GOLD        desk_ui::BRASS
+#define C_BTN         desk_ui::SURFACE_RAISED
+#define C_BTN_PRESS   desk_ui::SURFACE_PRESS
+#define C_BTN_ALT     desk_ui::SURFACE_RAISED
+#define C_DANGER      desk_ui::DANGER
+#define C_DANGER_DK   0x8D4149
+#define C_CARD_TXT    desk_ui::TEXT
+#define C_SUBTEXT     desk_ui::MUTED
+#define C_STAR        desk_ui::BRASS
 
 // Rocky Desk is a landscape appliance.  Keep one canonical coordinate system
 // instead of maintaining two subtly different interfaces behind a setting.
@@ -967,27 +968,24 @@ static lv_obj_t* make_btn(lv_obj_t* parent, const char* txt,
     lv_obj_set_size(btn, w, h);
     lv_obj_set_style_bg_color(btn, lv_color_hex(bg), 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(btn, 22, 0);
-    lv_obj_set_style_border_width(btn, 0, 0);
-    lv_obj_set_style_shadow_width(btn, 14, 0);
-    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(btn, 70, 0);
-    lv_obj_set_style_shadow_ofs_y(btn, 5, 0);
+    lv_obj_set_style_radius(btn, 14, 0);
+    lv_obj_set_style_border_width(btn, 1, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(C_GOLD), 0);
+    lv_obj_set_style_border_opa(btn, bg == C_GOLD ? LV_OPA_TRANSP : LV_OPA_40, 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+    lv_obj_set_style_transform_scale(btn, 248, LV_STATE_PRESSED);
     lv_obj_t* lbl = lv_label_create(btn);
     lv_label_set_text(lbl, txt);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_set_style_text_color(lbl,
+        lv_color_hex(bg == C_GOLD ? desk_ui::BLACK : C_CARD_TXT), 0);
     lv_obj_center(lbl);
     if (cb) lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, ud);
     return btn;
 }
 
 static void set_connection_dot(lv_obj_t* dot, uint32_t color, bool glow) {
-    if (!dot) return;
-    lv_obj_set_style_bg_color(dot, lv_color_hex(color), 0);
-    lv_obj_set_style_shadow_width(dot, glow ? 12 : 0, 0);
-    lv_obj_set_style_shadow_color(dot, lv_color_hex(color), 0);
-    lv_obj_set_style_shadow_opa(dot, glow ? 150 : 0, 0);
+    desk_ui::set_status_dot(dot, color, glow);
 }
 
 static void refresh_connectivity_ui(void) {
@@ -1011,7 +1009,7 @@ static void refresh_connectivity_ui(void) {
             lv_color_hex(g_wifi_connected ? C_CORRECT : C_SUBTEXT), 0);
     }
     set_connection_dot(g_connectivity_wifi_dot,
-                       g_wifi_connected ? C_CORRECT : 0x4A4068,
+                       g_wifi_connected ? C_CORRECT : desk_ui::LINE,
                        g_wifi_connected);
     if (g_connectivity_wifi_action) {
         lv_label_set_text(g_connectivity_wifi_action,
@@ -1020,7 +1018,7 @@ static void refresh_connectivity_ui(void) {
 
     RockyBleState ble = rocky_ble_state();
     const char* ble_text = "Bluetooth unavailable";
-    uint32_t ble_color = 0x4A4068;
+    uint32_t ble_color = desk_ui::LINE;
     bool ble_glow = false;
     if (ble == ROCKY_BLE_SECURE) {
         ble_text = "Paired and connected";
@@ -1053,7 +1051,7 @@ static void refresh_connectivity_ui(void) {
             lv_color_hex(g_sd_mounted ? C_CORRECT : C_SUBTEXT), 0);
     }
     set_connection_dot(g_settings_sd_dot,
-                       g_sd_mounted ? C_CORRECT : 0x4A4068,
+                       g_sd_mounted ? C_CORRECT : desk_ui::LINE,
                        g_sd_mounted);
 }
 
@@ -1100,9 +1098,10 @@ static lv_obj_t* make_header(lv_obj_t* scr, int h) {
     lv_obj_set_style_border_width(hdr, 0, 0);
     lv_obj_set_style_radius(hdr, 0, 0);
     lv_obj_set_style_pad_all(hdr, 0, 0);
-    lv_obj_set_style_shadow_width(hdr, 16, 0);
-    lv_obj_set_style_shadow_color(hdr, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(hdr, 60, 0);
+    lv_obj_set_style_border_width(hdr, 1, 0);
+    lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(hdr, lv_color_hex(desk_ui::LINE), 0);
+    lv_obj_set_style_shadow_width(hdr, 0, 0);
     lv_obj_remove_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
     return hdr;
 }
@@ -1218,21 +1217,28 @@ static lv_obj_t* make_app_tile(lv_obj_t* parent, const lv_image_dsc_t* icon,
     lv_obj_t* t = lv_obj_create(parent);
     lv_obj_set_size(t, w, h);
     lv_obj_set_pos(t, x, y);
-    lv_obj_set_style_bg_color(t, lv_color_hex(bg), 0);
-    lv_obj_set_style_bg_grad_color(t, lv_color_hex(bg_dk), 0);
+    lv_obj_set_style_bg_color(t, lv_color_hex(desk_ui::SURFACE_RAISED), 0);
+    lv_obj_set_style_bg_grad_color(t, lv_color_hex(desk_ui::SURFACE), 0);
     lv_obj_set_style_bg_grad_dir(t, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(t, 32, 0);
+    lv_obj_set_style_radius(t, 20, 0);
     lv_obj_set_style_border_width(t, 1, 0);
-    lv_obj_set_style_border_color(t, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(t, 38, 0);
-    lv_obj_set_style_shadow_width(t, 14, 0);
-    lv_obj_set_style_shadow_color(t, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(t, 140, 0);
-    lv_obj_set_style_shadow_ofs_y(t, 14, 0);
+    lv_obj_set_style_border_color(t, lv_color_hex(desk_ui::LINE), 0);
+    lv_obj_set_style_border_opa(t, LV_OPA_COVER, 0);
+    lv_obj_set_style_shadow_width(t, 0, 0);
+    lv_obj_set_style_transform_scale(t, 248, LV_STATE_PRESSED);
     lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(t, cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* accent = lv_obj_create(t);
+    lv_obj_set_size(accent, w - 28, 3);
+    lv_obj_align(accent, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(accent, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_opa(accent, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(accent, 0, 0);
+    lv_obj_set_style_radius(accent, 2, 0);
+    lv_obj_set_style_pad_all(accent, 0, 0);
+    desk_ui::make_inert(accent);
     if (icon && icon->data) {
         lv_obj_t* il = lv_image_create(t);
         lv_image_set_src(il, icon);
@@ -1283,15 +1289,14 @@ static lv_obj_t* make_game_card(lv_obj_t* parent, const char* title,
                                 lv_event_cb_t cb) {
     lv_obj_t* card = lv_obj_create(parent);
     lv_obj_set_size(card, 454, 410);
-    lv_obj_set_style_bg_color(card, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(desk_ui::SURFACE_RAISED), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(card, 32, 0);
-    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_radius(card, 20, 0);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(bg), 0);
     lv_obj_set_style_pad_all(card, 0, 0);
-    lv_obj_set_style_shadow_width(card, 28, 0);
-    lv_obj_set_style_shadow_color(card, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(card, 90, 0);
-    lv_obj_set_style_shadow_ofs_y(card, 8, 0);
+    lv_obj_set_style_shadow_width(card, 0, 0);
+    lv_obj_set_style_transform_scale(card, 250, LV_STATE_PRESSED);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(card, cb, LV_EVENT_CLICKED, NULL);
@@ -1366,7 +1371,7 @@ static void show_home(void) {
     lvgl_port_lock(0);
 
     lv_obj_t* scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0D0120), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(desk_ui::BLACK), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
@@ -1392,6 +1397,22 @@ static void show_home(void) {
     lv_obj_t* star_lbl = make_label(hdr, star_buf, &lv_font_montserrat_24, C_STAR);
     lv_obj_align(star_lbl, LV_ALIGN_LEFT_MID, 24, 0);
     apply_wallpaper_stroke(star_lbl);
+    lv_obj_t* brand = make_label(hdr, "ROCKY DESK", &lv_font_montserrat_20, C_CARD_TXT);
+    lv_obj_align(brand, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_letter_space(brand, 2, 0);
+
+    lv_obj_t* wifi_dot = desk_ui::status_dot(hdr,
+        g_wifi_connected ? C_CORRECT : desk_ui::LINE, 12);
+    lv_obj_align(wifi_dot, LV_ALIGN_RIGHT_MID, -174, 0);
+    lv_obj_t* wifi_text = make_label(hdr, "WI-FI", &lv_font_montserrat_18, C_SUBTEXT);
+    lv_obj_align(wifi_text, LV_ALIGN_RIGHT_MID, -108, 0);
+    RockyBleState home_ble = rocky_ble_state();
+    bool phone_live = home_ble == ROCKY_BLE_SECURE || home_ble == ROCKY_BLE_CONNECTED;
+    lv_obj_t* phone_dot = desk_ui::status_dot(hdr,
+        phone_live ? C_CORRECT : desk_ui::LINE, 12);
+    lv_obj_align(phone_dot, LV_ALIGN_RIGHT_MID, -78, 0);
+    lv_obj_t* phone_text = make_label(hdr, "PHONE", &lv_font_montserrat_18, C_SUBTEXT);
+    lv_obj_align(phone_text, LV_ALIGN_RIGHT_MID, -12, 0);
     // Stop any running timer from a prior home screen instance
     if (g_home_timer) { lv_timer_delete(g_home_timer); g_home_timer = NULL; }
     g_home_scr = scr;
@@ -1586,7 +1607,7 @@ static void launch_settings(void) {
         lv_obj_set_width(lbl, 960);
         lv_obj_t* rule = lv_obj_create(col);
         lv_obj_set_size(rule, 960, 2);
-        lv_obj_set_style_bg_color(rule, lv_color_hex(0x3A2862), 0);
+        lv_obj_set_style_bg_color(rule, lv_color_hex(desk_ui::LINE), 0);
         lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(rule, 0, 0);
         lv_obj_set_style_radius(rule, 1, 0);
@@ -1599,14 +1620,12 @@ static void launch_settings(void) {
     auto make_card = [&](int32_t h) -> lv_obj_t* {
         lv_obj_t* c = lv_obj_create(col);
         lv_obj_set_size(c, 960, h);
-        lv_obj_set_style_bg_color(c, lv_color_hex(0x1A0F3E), 0);
+        lv_obj_set_style_bg_color(c, lv_color_hex(desk_ui::SURFACE), 0);
         lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(c, 20, 0);
-        lv_obj_set_style_border_width(c, 0, 0);
-        lv_obj_set_style_shadow_width(c, 16, 0);
-        lv_obj_set_style_shadow_color(c, lv_color_hex(0x000000), 0);
-        lv_obj_set_style_shadow_opa(c, 60, 0);
-        lv_obj_set_style_shadow_ofs_y(c, 6, 0);
+        lv_obj_set_style_radius(c, 16, 0);
+        lv_obj_set_style_border_width(c, 1, 0);
+        lv_obj_set_style_border_color(c, lv_color_hex(desk_ui::LINE), 0);
+        lv_obj_set_style_shadow_width(c, 0, 0);
         lv_obj_set_style_pad_all(c, 0, 0);
         lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
         return c;
@@ -1644,14 +1663,14 @@ static void launch_settings(void) {
     lv_obj_t* chg_btn = lv_button_create(wifi_card);
     lv_obj_set_size(chg_btn, 110, 50);
     lv_obj_align(chg_btn, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x005FAD), 0);
-    lv_obj_set_style_bg_color(chg_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(chg_btn, lv_color_hex(C_GOLD), 0);
+    lv_obj_set_style_bg_color(chg_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
     lv_obj_set_style_radius(chg_btn, 14, 0);
     lv_obj_set_style_border_width(chg_btn, 0, 0);
     lv_obj_set_style_shadow_width(chg_btn, 0, 0);
     lv_obj_t* chg_lbl = lv_label_create(chg_btn);
     lv_obj_set_style_text_font(chg_lbl, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(chg_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(chg_lbl, lv_color_hex(desk_ui::BLACK), 0);
     lv_obj_center(chg_lbl);
     g_connectivity_wifi_action = chg_lbl;
     lv_obj_add_event_cb(chg_btn, [](lv_event_t*) {
@@ -1684,7 +1703,7 @@ static void launch_settings(void) {
     lv_obj_t* ble_badge = lv_obj_create(ble_card);
     lv_obj_set_size(ble_badge, 74, 40);
     lv_obj_align(ble_badge, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(ble_badge, lv_color_hex(0x2B2050), 0);
+    lv_obj_set_style_bg_color(ble_badge, lv_color_hex(desk_ui::SURFACE_RAISED), 0);
     lv_obj_set_style_bg_opa(ble_badge, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(ble_badge, 20, 0);
     lv_obj_set_style_border_width(ble_badge, 1, 0);
@@ -1726,7 +1745,7 @@ static void launch_settings(void) {
     lv_obj_t* sd_badge = lv_obj_create(sd_card);
     lv_obj_set_size(sd_badge, 74, 40);
     lv_obj_align(sd_badge, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(sd_badge, lv_color_hex(0x2B2050), 0);
+    lv_obj_set_style_bg_color(sd_badge, lv_color_hex(desk_ui::SURFACE_RAISED), 0);
     lv_obj_set_style_bg_opa(sd_badge, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(sd_badge, 20, 0);
     lv_obj_set_style_border_width(sd_badge, 1, 0);
@@ -1763,7 +1782,7 @@ static void launch_settings(void) {
     lv_obj_align(sld, LV_ALIGN_BOTTOM_MID, 0, -38);
     lv_slider_set_range(sld, BRIGHTNESS_MIN, 100);
     lv_slider_set_value(sld, g_brightness, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(sld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sld, lv_color_hex(desk_ui::LINE), LV_PART_MAIN);
     lv_obj_set_style_radius(sld, 18, LV_PART_MAIN);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_GOLD), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(sld, lv_color_hex(C_STAR), LV_PART_KNOB);
@@ -1808,10 +1827,10 @@ static void launch_settings(void) {
     lv_obj_align(vsld, LV_ALIGN_BOTTOM_MID, 0, -38);
     lv_slider_set_range(vsld, 0, 100);
     lv_slider_set_value(vsld, g_volume, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(vsld, lv_color_hex(0x1C0E42), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(vsld, lv_color_hex(desk_ui::LINE), LV_PART_MAIN);
     lv_obj_set_style_radius(vsld, 18, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(vsld, lv_color_hex(C_BTN_ALT), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(vsld, lv_color_hex(0xBBAAFF), LV_PART_KNOB);
+    lv_obj_set_style_bg_color(vsld, lv_color_hex(C_GOLD), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(vsld, lv_color_hex(C_GOLD), LV_PART_KNOB);
     lv_obj_set_style_pad_all(vsld, 10, LV_PART_KNOB);
     lv_obj_set_style_radius(vsld, LV_RADIUS_CIRCLE, LV_PART_KNOB);
     lv_obj_set_style_shadow_width(vsld, 8, LV_PART_KNOB);
@@ -2029,16 +2048,16 @@ static void show_wifi_password_screen(const char* ssid) {
     lv_obj_t* conn_btn = lv_button_create(scr);
     lv_obj_set_size(conn_btn, 220, 72);
     lv_obj_align(conn_btn, LV_ALIGN_TOP_LEFT, 133, 322);
-    lv_obj_set_style_bg_color(conn_btn, lv_color_hex(0x005FAD), 0);
-    lv_obj_set_style_bg_color(conn_btn, lv_color_hex(0x003D73), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(conn_btn, lv_color_hex(C_GOLD), 0);
+    lv_obj_set_style_bg_color(conn_btn, lv_color_hex(C_BTN_PRESS), LV_STATE_PRESSED);
     lv_obj_set_style_radius(conn_btn, 18, 0);
     lv_obj_set_style_border_width(conn_btn, 0, 0);
-    lv_obj_set_style_shadow_width(conn_btn, 20, 0);
-    lv_obj_set_style_shadow_opa(conn_btn, 100, 0);
+    lv_obj_set_style_shadow_width(conn_btn, 0, 0);
+    lv_obj_set_style_transform_scale(conn_btn, 248, LV_STATE_PRESSED);
     lv_obj_t* conn_lbl = lv_label_create(conn_btn);
     lv_label_set_text(conn_lbl, "Connect");
     lv_obj_set_style_text_font(conn_lbl, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(conn_lbl, lv_color_hex(C_CARD_TXT), 0);
+    lv_obj_set_style_text_color(conn_lbl, lv_color_hex(desk_ui::BLACK), 0);
     lv_obj_center(conn_lbl);
     lv_obj_add_event_cb(conn_btn, on_wifi_connect_btn, LV_EVENT_CLICKED, NULL);
 
@@ -2210,7 +2229,7 @@ static void show_question(void) {
     }
 
     // ── Answer buttons: 3 full-width stacked at the bottom ───────────────────
-    static const uint32_t BTN_COLS[3] = { 0x3A2A7A, 0x4A2F8C, 0x5A3A9E };
+    static const uint32_t BTN_COLS[3] = { C_BTN, C_BTN, C_BTN };
     for (int i = 0; i < 3; i++) {
         lv_obj_t* btn = lv_button_create(scr);
         lv_obj_set_size(btn, 470, BTN_H);
@@ -2615,14 +2634,12 @@ static void show_admin(void) {
 
     lv_obj_t* conn_card = lv_obj_create(col);
     lv_obj_set_size(conn_card, SCR_W - 70, 184);
-    lv_obj_set_style_bg_color(conn_card, lv_color_hex(0x1A0F3E), 0);
+    lv_obj_set_style_bg_color(conn_card, lv_color_hex(desk_ui::SURFACE), 0);
     lv_obj_set_style_bg_opa(conn_card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(conn_card, 20, 0);
-    lv_obj_set_style_border_width(conn_card, 0, 0);
-    lv_obj_set_style_shadow_width(conn_card, 14, 0);
-    lv_obj_set_style_shadow_color(conn_card, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(conn_card, 60, 0);
-    lv_obj_set_style_shadow_ofs_y(conn_card, 5, 0);
+    lv_obj_set_style_radius(conn_card, 16, 0);
+    lv_obj_set_style_border_width(conn_card, 1, 0);
+    lv_obj_set_style_border_color(conn_card, lv_color_hex(desk_ui::LINE), 0);
+    lv_obj_set_style_shadow_width(conn_card, 0, 0);
     lv_obj_set_style_pad_all(conn_card, 0, 0);
     lv_obj_remove_flag(conn_card, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -2653,7 +2670,7 @@ static void show_admin(void) {
     lv_obj_t* divider = lv_obj_create(conn_card);
     lv_obj_set_size(divider, SCR_W - 114, 1);
     lv_obj_align(divider, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(0x3A2862), 0);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(desk_ui::LINE), 0);
     lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(divider, 0, 0);
     lv_obj_set_style_pad_all(divider, 0, 0);

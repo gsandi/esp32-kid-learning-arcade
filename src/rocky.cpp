@@ -179,6 +179,12 @@ lv_obj_t* rocky_create(lv_obj_t* parent, int cx, int cy, float scale) {
     return s_face;
 }
 
+void rocky_set_mouth_visible(bool show) {
+    if (!s_mouth) return;
+    if (show) lv_obj_remove_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_mouth, LV_OBJ_FLAG_HIDDEN);
+}
+
 // ── expressions ───────────────────────────────────────────────────────────────
 void rocky_queue_proud(void) {
     s_proudQueued  = true;

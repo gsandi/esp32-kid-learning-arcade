@@ -28,6 +28,10 @@ enum RockyExpr {
 // the first's bookkeeping (the old objects belong to their own screen).
 lv_obj_t* rocky_create(lv_obj_t* parent, int cx, int cy, float scale);
 
+// Focus uses only the two complete capsule eyes.  Other contexts may keep the
+// expressive mouth, so visibility is an explicit presentation choice.
+void rocky_set_mouth_visible(bool visible);
+
 // Idempotent. No-op if the face is not on the active screen, except PROUD, which is queued.
 void rocky_set_expression(RockyExpr e);
 

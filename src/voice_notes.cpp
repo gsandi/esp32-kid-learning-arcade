@@ -1,4 +1,5 @@
 #include "voice_notes.h"
+#include "ui_theme.h"
 
 #include "app_audio.h"
 
@@ -566,29 +567,29 @@ void rebuild_library(void) {
     for (size_t i = 0; i < s_library_count; ++i) {
         lv_obj_t* row = lv_obj_create(s_library);
         lv_obj_set_size(row, LV_PCT(100), 74);
-        lv_obj_set_style_bg_color(row, lv_color_hex(0x101014), 0);
+        lv_obj_set_style_bg_color(row, lv_color_hex(desk_ui::SURFACE), 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(row, 0, 0);
         lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
-        lv_obj_set_style_border_color(row, lv_color_hex(0x2A282E), 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(desk_ui::LINE), 0);
         lv_obj_set_style_pad_all(row, 12, 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         char label_text[96];
         format_note_label(s_library_files[i], label_text, sizeof(label_text));
-        lv_obj_t* label = make_label(row, label_text, &lv_font_montserrat_18, 0xFFF7E8);
+        lv_obj_t* label = make_label(row, label_text, &lv_font_montserrat_18, desk_ui::TEXT);
         lv_obj_align(label, LV_ALIGN_LEFT_MID, 4, 0);
 
         lv_obj_t* play = lv_button_create(row);
         lv_obj_set_size(play, 92, 46);
         lv_obj_align(play, LV_ALIGN_RIGHT_MID, -2, 0);
         lv_obj_set_style_radius(play, 9, 0);
-        lv_obj_set_style_bg_color(play, lv_color_hex(0x2C2515), 0);
+        lv_obj_set_style_bg_color(play, lv_color_hex(desk_ui::SURFACE_RAISED), 0);
         lv_obj_set_style_border_width(play, 1, 0);
-        lv_obj_set_style_border_color(play, lv_color_hex(0xF4C95D), 0);
+        lv_obj_set_style_border_color(play, lv_color_hex(desk_ui::BRASS), 0);
         lv_obj_set_style_shadow_width(play, 0, 0);
         lv_obj_add_event_cb(play, library_play_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-        s_library_play_labels[i] = make_label(play, "PLAY", &lv_font_montserrat_18, 0xF4C95D);
+        s_library_play_labels[i] = make_label(play, "PLAY", &lv_font_montserrat_18, desk_ui::BRASS);
         lv_obj_center(s_library_play_labels[i]);
     }
 }
@@ -755,35 +756,18 @@ bool voice_notes_storage_busy(void) {
 void voice_notes_show(lv_event_cb_t home_cb) {
     s_home_cb = home_cb;
     lvgl_port_lock(0);
-    lv_obj_t* screen = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x07070A), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(screen, 0, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* screen = desk_ui::screen();
     s_screen = screen;
     lv_obj_add_event_cb(screen, screen_deleted, LV_EVENT_DELETE, nullptr);
 
-    lv_obj_t* back = lv_button_create(screen);
-    lv_obj_set_size(back, 64, 54);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 18, 18);
-    lv_obj_set_style_bg_color(back, lv_color_hex(0x241440), 0);
-    lv_obj_set_style_radius(back, 18, 0);
-    lv_obj_set_style_border_width(back, 0, 0);
-    lv_obj_set_style_shadow_width(back, 0, 0);
-    lv_obj_add_event_cb(back, back_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t* back_text = make_label(back, "<", &lv_font_montserrat_28, 0xFFFFFF);
-    lv_obj_center(back_text);
-
-    lv_obj_t* title = make_label(screen, "VOICE NOTES", &lv_font_montserrat_28, 0xF4C95D);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 120, 30);
+    desk_ui::header(screen, "Voice notes", "CAPTURE", back_cb);
     lv_obj_t* subtitle = make_label(screen, "Record here. Replay anytime.",
-                                    &lv_font_montserrat_18, 0xA99CB8);
-    lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 120, 102);
+                                    &lv_font_montserrat_18, desk_ui::MUTED);
+    lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 30, 102);
 
-    s_duration_label = make_label(screen, "0:00", &lv_font_montserrat_48, 0xFFF7E8);
+    s_duration_label = make_label(screen, "0:00", &lv_font_montserrat_48, desk_ui::TEXT);
     lv_obj_align(s_duration_label, LV_ALIGN_TOP_LEFT, 178, 154);
-    s_status_label = make_label(screen, "", &lv_font_montserrat_18, 0xB8A9CB);
+    s_status_label = make_label(screen, "", &lv_font_montserrat_18, desk_ui::MUTED);
     lv_obj_set_width(s_status_label, 410);
     lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_status_label, LV_ALIGN_TOP_LEFT, 30, 218);
@@ -793,7 +777,7 @@ void voice_notes_show(lv_event_cb_t home_cb) {
     lv_obj_align(s_record_button, LV_ALIGN_TOP_LEFT, 130, 278);
     lv_obj_set_style_radius(s_record_button, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(s_record_button, 10, 0);
-    lv_obj_set_style_border_color(s_record_button, lv_color_hex(0xFF8797), 0);
+    lv_obj_set_style_border_color(s_record_button, lv_color_hex(desk_ui::DANGER), 0);
     // A 310 px circle plus a 42 px software blur needs a ~78 KB temporary
     // corner mask in LVGL. Its allocator cannot guarantee that contiguous
     // block after the two clock canvases are active, and LV_ASSERT_MALLOC then
@@ -805,13 +789,13 @@ void voice_notes_show(lv_event_cb_t home_cb) {
                                        &lv_font_montserrat_28, 0xFFFFFF);
     lv_obj_center(s_record_button_label);
 
-    s_count_label = make_label(screen, "", &lv_font_montserrat_20, 0xA99CB8);
+    s_count_label = make_label(screen, "", &lv_font_montserrat_20, desk_ui::MUTED);
     lv_obj_set_width(s_count_label, 410);
     lv_obj_set_style_text_align(s_count_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_count_label, LV_ALIGN_TOP_LEFT, 30, 520);
 
     lv_obj_t* library_title = make_label(screen, "ON THIS DEVICE",
-                                         &lv_font_montserrat_18, 0xF4C95D);
+                                         &lv_font_montserrat_18, desk_ui::BRASS);
     lv_obj_align(library_title, LV_ALIGN_TOP_LEFT, 486, 86);
     s_library = lv_obj_create(screen);
     lv_obj_set_size(s_library, 520, 466);
@@ -819,10 +803,10 @@ void voice_notes_show(lv_event_cb_t home_cb) {
     lv_obj_set_flex_flow(s_library, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_library, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_bg_color(s_library, lv_color_hex(0x101014), 0);
+    lv_obj_set_style_bg_color(s_library, lv_color_hex(desk_ui::SURFACE), 0);
     lv_obj_set_style_bg_opa(s_library, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_library, 1, 0);
-    lv_obj_set_style_border_color(s_library, lv_color_hex(0x2A282E), 0);
+    lv_obj_set_style_border_color(s_library, lv_color_hex(desk_ui::LINE), 0);
     lv_obj_set_style_radius(s_library, 14, 0);
     lv_obj_set_style_pad_all(s_library, 8, 0);
     lv_obj_set_style_pad_row(s_library, 2, 0);

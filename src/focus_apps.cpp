@@ -8,6 +8,7 @@
 #include "app_audio.h"
 #include "art_store.h"
 #include "rocky.h"
+#include "ui_theme.h"
 #include "rocky_ble.h"
 #include "notification_alerts.h"
 #include "voice_notes.h"
@@ -20,14 +21,14 @@
 #include <time.h>
 
 static const char* TAG = "focus_apps";
-static constexpr uint32_t BG       = 0x120925;
-static constexpr uint32_t PANEL    = 0x241440;
-static constexpr uint32_t TEXT     = 0xFFF7E8;
-static constexpr uint32_t MUTED    = 0xB8A9CB;
-static constexpr uint32_t ORANGE   = 0xF47A3A;
-static constexpr uint32_t TEAL     = 0x35C7C2;
-static constexpr uint32_t GOLD     = 0xF4C95D;
-static constexpr uint32_t PURPLE   = 0x7652B8;
+static constexpr uint32_t BG       = desk_ui::BLACK;
+static constexpr uint32_t PANEL    = desk_ui::SURFACE_RAISED;
+static constexpr uint32_t TEXT     = desk_ui::TEXT;
+static constexpr uint32_t MUTED    = desk_ui::MUTED;
+static constexpr uint32_t ORANGE   = desk_ui::BRASS;
+static constexpr uint32_t TEAL     = desk_ui::BRASS;
+static constexpr uint32_t GOLD     = desk_ui::BRASS;
+static constexpr uint32_t PURPLE   = desk_ui::SURFACE_RAISED;
 
 static const Note SND_DONE[] = {{523, 90}, {0, 45}, {659, 90}, {0, 45}, {784, 180}, {0, 0}};
 
@@ -255,24 +256,17 @@ static lv_obj_t* label(lv_obj_t* parent, const char* text, const lv_font_t* font
 
 static lv_obj_t* button(lv_obj_t* parent, const char* text, int w, int h,
                         uint32_t color, lv_event_cb_t cb, void* user = nullptr) {
-    lv_obj_t* obj = lv_button_create(parent);
-    lv_obj_set_size(obj, w, h);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(PURPLE), LV_STATE_PRESSED);
-    lv_obj_set_style_radius(obj, 22, 0);
-    lv_obj_set_style_border_width(obj, 0, 0);
-    lv_obj_set_style_shadow_width(obj, 0, 0);
-    lv_obj_add_event_cb(obj, cb, LV_EVENT_CLICKED, user);
-    lv_obj_t* txt = label(obj, text, &lv_font_montserrat_24, TEXT);
-    lv_obj_center(txt);
+    desk_ui::ButtonKind kind =
+        (color == ORANGE || color == TEAL) ? desk_ui::ButtonKind::Primary
+                                           : desk_ui::ButtonKind::Secondary;
+    lv_obj_t* obj = desk_ui::button(parent, text, w, h, kind, cb, user);
+    lv_obj_t* txt = lv_obj_get_child(obj, 0);
+    lv_obj_set_style_text_font(txt, &lv_font_montserrat_24, 0);
     return obj;
 }
 
 static void add_header(lv_obj_t* scr, const char* title, lv_event_cb_t home_cb) {
-    lv_obj_t* home = button(scr, "<", 64, 54, PANEL, home_cb);
-    lv_obj_align(home, LV_ALIGN_TOP_LEFT, 18, 18);
-    lv_obj_t* t = label(scr, title, &lv_font_montserrat_28, GOLD);
-    lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 28);
+    desk_ui::header(scr, title, "ROCKY DESK", home_cb);
 }
 
 static void format_clock(char* out, size_t n, uint32_t sec, bool hours) {
@@ -340,7 +334,7 @@ static void draw_pomo_ticks(lv_event_t* e) {
 
         lv_draw_rect_dsc_t d;
         lv_draw_rect_dsc_init(&d);
-        d.bg_color = lv_color_hex(complete ? GOLD : (head ? 0xFFF2B0 : ((i & 1) ? GOLD : ORANGE)));
+        d.bg_color = lv_color_hex(complete ? GOLD : (head ? 0xFFF2B0 : ((i & 1) ? GOLD : desk_ui::BRASS_DIM)));
         d.bg_opa = opa;
         d.radius = 4;
         lv_area_t a;
@@ -586,10 +580,20 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
     // Instrument and character occupy the left half; time and controls own the
     // right half.  The split remains stable while the session is running.
     lv_obj_t* face = rocky_create(scr, 258, 306, 0.82f);
+    rocky_set_mouth_visible(false);
     lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(face, on_rocky_tap, LV_EVENT_CLICKED, nullptr);
 
-    s_pomo_status = label(scr, "", &lv_font_montserrat_24, ORANGE);
+    lv_obj_t* split = lv_obj_create(scr);
+    lv_obj_set_size(split, 1, 444);
+    lv_obj_set_pos(split, 512, 96);
+    lv_obj_set_style_bg_color(split, lv_color_hex(desk_ui::LINE), 0);
+    lv_obj_set_style_bg_opa(split, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(split, 0, 0);
+    lv_obj_set_style_pad_all(split, 0, 0);
+    desk_ui::make_inert(split);
+
+    s_pomo_status = label(scr, "", &lv_font_montserrat_20, ORANGE);
     lv_obj_align(s_pomo_status, LV_ALIGN_TOP_LEFT, 640, 132);
     s_pomo_digits = label(scr, "25:00", &lv_font_montserrat_48, TEXT);
     lv_obj_align(s_pomo_digits, LV_ALIGN_TOP_LEFT, 610, 184);
@@ -613,7 +617,7 @@ void focus_show_pomodoro(lv_event_cb_t home_cb) {
                              on_preset, (void*)(uintptr_t)mins[i]);
         lv_obj_set_pos(b, 8 + i * 158, 24);
     }
-    lv_obj_t* preset_hint = label(s_pomo_presets, "Short sprint     Classic focus     Deep focus",
+    lv_obj_t* preset_hint = label(s_pomo_presets, "SPRINT              CLASSIC              DEEP",
                                   &lv_font_montserrat_18, MUTED);
     lv_obj_align(preset_hint, LV_ALIGN_BOTTOM_MID, 0, -28);
 
@@ -712,7 +716,7 @@ void focus_show_stopwatch(lv_event_cb_t home_cb) {
     lv_obj_t* primary = button(scr, "Start", 210, 88, TEAL, on_sw_primary);
     lv_obj_align(primary, LV_ALIGN_BOTTOM_LEFT, 530, -62);
     s_sw_primary_lbl = lv_obj_get_child(primary, 0);
-    lv_obj_t* lap = button(scr, "Lap", 112, 88, PURPLE, on_sw_lap);
+    lv_obj_t* lap = button(scr, "Lap", 112, 88, PANEL, on_sw_lap);
     lv_obj_align(lap, LV_ALIGN_BOTTOM_LEFT, 752, -62);
     lv_obj_t* reset = button(scr, "Reset", 112, 88, PANEL, on_sw_reset);
     lv_obj_align(reset, LV_ALIGN_BOTTOM_RIGHT, -36, -62);

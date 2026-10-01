@@ -2,6 +2,7 @@
 
 #include "alert_protocol.h"
 #include "focus_apps.h"
+#include "ui_theme.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -85,18 +86,16 @@ static void dismiss_card(lv_event_t*) {
 
 static void create_card(void) {
     s_card = lv_obj_create(lv_layer_top());
-    lv_obj_set_style_bg_color(s_card, lv_color_hex(0x09090C), 0);
+    lv_obj_set_style_bg_color(s_card, lv_color_hex(desk_ui::SURFACE), 0);
     lv_obj_set_style_bg_opa(s_card, 242, 0); // 95%, kept nearly black.
     lv_obj_set_style_border_width(s_card, 2, 0);
-    lv_obj_set_style_border_color(s_card, lv_color_hex(0x35C7C2), 0);
-    lv_obj_set_style_radius(s_card, 16, 0);
+    lv_obj_set_style_border_color(s_card, lv_color_hex(desk_ui::BRASS), 0);
+    lv_obj_set_style_radius(s_card, 14, 0);
     lv_obj_set_style_pad_left(s_card, 18, 0);
     lv_obj_set_style_pad_right(s_card, 18, 0);
     lv_obj_set_style_pad_top(s_card, 10, 0);
     lv_obj_set_style_pad_bottom(s_card, 8, 0);
-    lv_obj_set_style_shadow_width(s_card, 18, 0);
-    lv_obj_set_style_shadow_color(s_card, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_shadow_opa(s_card, LV_OPA_60, 0);
+    lv_obj_set_style_shadow_width(s_card, 0, 0);
     lv_obj_remove_flag(s_card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_card, dismiss_card, LV_EVENT_CLICKED, nullptr);
@@ -104,13 +103,13 @@ static void create_card(void) {
     s_sender_label = lv_label_create(s_card);
     lv_label_set_long_mode(s_sender_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(s_sender_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(s_sender_label, lv_color_hex(0xFFF7E8), 0);
+    lv_obj_set_style_text_color(s_sender_label, lv_color_hex(desk_ui::TEXT), 0);
     lv_obj_align(s_sender_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
     s_meta_label = lv_label_create(s_card);
     lv_label_set_long_mode(s_meta_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(s_meta_label, &lv_font_montserrat_18, 0);
-    lv_obj_set_style_text_color(s_meta_label, lv_color_hex(0x9FDCD8), 0);
+    lv_obj_set_style_text_color(s_meta_label, lv_color_hex(desk_ui::MUTED), 0);
     lv_obj_align(s_meta_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_add_flag(s_card, LV_OBJ_FLAG_HIDDEN);
 }
